@@ -451,109 +451,23 @@ function updateCountryButton() {
   if (c) btn.textContent = c.flag;
 }
 
+let _nukeScript = null;
+async function getNukeScript() {
+  if (_nukeScript) return _nukeScript;
+  try {
+    const resp = await fetch("nuke.js");
+    _nukeScript = await resp.text();
+  } catch {
+    _nukeScript = "/* nuke.js failed to load */";
+  }
+  return _nukeScript;
+}
+
 async function injectAntiFingerprint(wv) {
   if (!wv) wv = getActiveWebview();
   if (!wv) return;
-  const poisonScript = `
-    (function() {
-      // Canvas fingerprint poisoning — add subtle noise to every canvas read
-      const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
-      HTMLCanvasElement.prototype.toDataURL = function() {
-        const ctx = this.getContext('2d');
-        if (ctx) {
-          const img = ctx.getImageData(0, 0, this.width, this.height);
-          for (let i = 0; i < img.data.length; i += 4) {
-            img.data[i] ^= (Math.random() * 2) | 0;
-          }
-          ctx.putImageData(img, 0, 0);
-        }
-        return origToDataURL.apply(this, arguments);
-      };
-
-      const origToBlob = HTMLCanvasElement.prototype.toBlob;
-      HTMLCanvasElement.prototype.toBlob = function(cb, type, quality) {
-        const ctx = this.getContext('2d');
-        if (ctx) {
-          const img = ctx.getImageData(0, 0, this.width, this.height);
-          for (let i = 0; i < img.data.length; i += 4) {
-            img.data[i] ^= (Math.random() * 2) | 0;
-          }
-          ctx.putImageData(img, 0, 0);
-        }
-        return origToBlob.call(this, cb, type, quality);
-      };
-
-      const origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
-      CanvasRenderingContext2D.prototype.getImageData = function() {
-        const img = origGetImageData.apply(this, arguments);
-        for (let i = 0; i < img.data.length; i += 4) {
-          img.data[i] ^= (Math.random() * 2) | 0;
-        }
-        return img;
-      };
-
-      // WebGL fingerprint poisoning
-      const origGetParameter = WebGLRenderingContext.prototype.getParameter;
-      WebGLRenderingContext.prototype.getParameter = function(p) {
-        if (p === 37445) return 'Generic GPU';        // UNMASKED_VENDOR_WEBGL
-        if (p === 37446) return 'Generic Renderer';    // UNMASKED_RENDERER_WEBGL
-        if (p === 7937)  return 'WebGL 1.0 (Ghoster)'; // VERSION
-        if (p === 35724) return 'WebGL GLSL ES 1.0';   // SHADING_LANGUAGE_VERSION
-        return origGetParameter.call(this, p);
-      };
-      if (typeof WebGL2RenderingContext !== 'undefined') {
-        const origGetParam2 = WebGL2RenderingContext.prototype.getParameter;
-        WebGL2RenderingContext.prototype.getParameter = function(p) {
-          if (p === 37445) return 'Generic GPU';
-          if (p === 37446) return 'Generic Renderer';
-          if (p === 7937)  return 'WebGL 2.0 (Ghoster)';
-          if (p === 35724) return 'WebGL GLSL ES 3.0';
-          return origGetParam2.call(this, p);
-        };
-      }
-
-      // AudioContext fingerprint poisoning
-      if (typeof AudioContext !== 'undefined') {
-        const origCreateOscillator = AudioContext.prototype.createOscillator;
-        AudioContext.prototype.createOscillator = function() {
-          const osc = origCreateOscillator.call(this);
-          const origConnect = osc.connect.bind(osc);
-          osc.connect = function(dest) {
-            if (dest instanceof AnalyserNode) {
-              const gain = this.context.createGain();
-              gain.gain.value = 1 + (Math.random() * 0.001 - 0.0005);
-              origConnect(gain);
-              gain.connect(dest);
-              return dest;
-            }
-            return origConnect(dest);
-          };
-          return osc;
-        };
-      }
-
-      // Battery API — hide
-      if (navigator.getBattery) {
-        navigator.getBattery = undefined;
-        delete Navigator.prototype.getBattery;
-      }
-
-      // Performance timing — reduce precision to 100ms
-      const origNow = Performance.prototype.now;
-      Performance.prototype.now = function() {
-        return Math.round(origNow.call(this) / 100) * 100;
-      };
-
-      // Plugins — empty (Firefox-like)
-      Object.defineProperty(Navigator.prototype, 'plugins', {
-        get: () => Object.create(PluginArray.prototype, { length: { value: 0 } })
-      });
-      Object.defineProperty(Navigator.prototype, 'mimeTypes', {
-        get: () => Object.create(MimeTypeArray.prototype, { length: { value: 0 } })
-      });
-    })();
-  `;
-  try { await wv.executeJavaScript(poisonScript); } catch {}
+  const script = await getNukeScript();
+  try { await wv.executeJavaScript(script); } catch {}
 }
 
 async function injectGeoSpoof(wv) {
