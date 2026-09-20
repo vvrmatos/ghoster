@@ -18,7 +18,7 @@ const TOR_SOCKS = "socks5://127.0.0.1:9050";
 const TOR_HOST = "127.0.0.1";
 const TOR_PORT = 9050;
 
-const UA_PHANTOM = "Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0";
+const UA_PHANTOM = "Mozilla/5.0 (PhantomOS 1.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 Ghoster/0.1.0";
 const UA_STEALTH = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0";
 let uaMode = "phantom";
 let jsEnabled = true;

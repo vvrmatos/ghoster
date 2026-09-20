@@ -75,7 +75,7 @@ function getMementoPath() {
 }
 
 function getUA() {
-  return "Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0";
+  return "Mozilla/5.0 (PhantomOS 1.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 Ghoster/0.1.0";
 }
 
 function createTab(url) {
@@ -317,7 +317,7 @@ modePhantom.addEventListener("click", async () => {
   await window.ghoster.setUAMode("phantom");
   updateModeUI();
   const w = getActiveWebview();
-  if (w) { w.setUserAgent("Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0"); w.reload(); }
+  if (w) { w.setUserAgent("Mozilla/5.0 (PhantomOS 1.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 Ghoster/0.1.0"); w.reload(); }
 });
 
 modeStealth.addEventListener("click", async () => {
