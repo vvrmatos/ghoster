@@ -5,12 +5,39 @@
   "main": "src/main.js",
   "scripts": {
     "start": "electron .",
-    "dev": "electron . --dev"
+    "dev": "electron . --dev",
+    "build": "electron-builder --mac dmg",
+    "build:dir": "electron-builder --mac dir"
   },
   "author": "vvrmatos",
   "license": "MIT",
+  "build": {
+    "appId": "com.ghoster.browser",
+    "productName": "Ghoster",
+    "mac": {
+      "category": "public.app-category.utilities",
+      "icon": "build/icon.icns",
+      "target": ["dmg"],
+      "darkModeSupport": true
+    },
+    "dmg": {
+      "title": "Ghoster",
+      "iconSize": 128,
+      "contents": [
+        { "x": 130, "y": 220 },
+        { "x": 410, "y": 220, "type": "link", "path": "/Applications" }
+      ]
+    },
+    "files": [
+      "src/**/*",
+      "!node_modules/.cache"
+    ],
+    "extraResources": [],
+    "asar": true
+  },
   "devDependencies": {
-    "electron": "^36.3.2"
+    "electron": "^36.3.2",
+    "electron-builder": "^26.15.3"
   },
   "dependencies": {
     "socks-proxy-agent": "^8.0.5"
