@@ -463,9 +463,17 @@ async function getNukeScript() {
   return _nukeScript;
 }
 
+function isLocalPage(wv) {
+  try {
+    const u = wv.getURL();
+    return !u || u.startsWith("file://") || u.includes("memento.html") || u === "about:blank";
+  } catch { return true; }
+}
+
 async function injectAntiFingerprint(wv) {
   if (!wv) wv = getActiveWebview();
   if (!wv) return;
+  if (isLocalPage(wv)) return; // never spoof our own pages
   const script = await getNukeScript();
   try { await wv.executeJavaScript(script); } catch {}
 }
@@ -473,6 +481,7 @@ async function injectAntiFingerprint(wv) {
 async function injectGeoSpoof(wv) {
   if (!wv) wv = getActiveWebview();
   if (!wv) return;
+  if (isLocalPage(wv)) return; // never spoof our own pages
   await injectAntiFingerprint(wv);
   const geo = await window.ghoster.getGeo();
   const spoofScript = `
