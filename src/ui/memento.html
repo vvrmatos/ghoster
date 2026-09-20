@@ -271,46 +271,59 @@
       resultsContainer.innerHTML = '<div class="loading">searching through tor<span class="loading-dot">_</span></div>';
 
       try {
-        // Use parent window's ghoster API (we're in a webview, so use postMessage)
-        // Actually, memento is loaded as a local file in the webview, so we need
-        // to communicate via the URL or a different mechanism.
-        // Simplest: navigate to a search URL that ghoster's main process intercepts.
-        const params = new URLSearchParams({ q: query });
-        window.location.href = "ghoster://search?" + params.toString();
+        const resp = await fetch("https://www.google.com/search?q=" + encodeURIComponent(query) + "&num=15&hl=en&pws=0&gl=us");
+        const html = await resp.text();
+        const results = parseResults(html, query);
+        renderResults(results);
       } catch (err) {
         resultsContainer.innerHTML = '<div class="error">search failed — ' + err.message + '</div>';
       }
     }
 
-    function renderResults(data) {
-      if (!data.ok) {
-        resultsContainer.innerHTML = '<div class="error">search failed — try again</div>';
-        return;
+    function parseResults(html, query) {
+      const results = [];
+      const linkRe = /<a[^>]+href="\/url\?q=([^&"]+)[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
+      let m;
+      while ((m = linkRe.exec(html)) !== null) {
+        const url = decodeURIComponent(m[1]);
+        if (url.startsWith("http") && !url.includes("google.com") && !url.includes("accounts.google")) {
+          const title = m[2].replace(/<[^>]+>/g, "").trim();
+          if (title && !results.find(r => r.url === url)) {
+            results.push({ url, title });
+          }
+        }
       }
+      if (results.length < 3) {
+        const directRe = /<a[^>]+href="(https?:\/\/(?!www\.google|accounts\.google|maps\.google|support\.google|policies\.google)[^"]+)"[^>]*>(?:<h3[^>]*>)?([\s\S]*?)(?:<\/h3>)?<\/a>/gi;
+        while ((m = directRe.exec(html)) !== null) {
+          const url = m[1];
+          const title = m[2].replace(/<[^>]+>/g, "").trim();
+          if (title && title.length > 2 && !results.find(r => r.url === url)) {
+            results.push({ url, title });
+          }
+        }
+      }
+      return { ok: true, results: results.slice(0, 15), query };
+    }
 
-      if (data.results.length === 0) {
-        resultsContainer.innerHTML = `
-          <div class="no-results">
-            <div class="no-results-icon">👻</div>
-            <div class="no-results-text">nothing found — even ghosts have limits</div>
-          </div>`;
+    function renderResults(data) {
+      if (!data.ok || data.results.length === 0) {
+        resultsContainer.innerHTML =
+          '<div class="no-results"><div class="no-results-icon">👻</div><div class="no-results-text">nothing found — even ghosts have limits</div></div>';
         return;
       }
 
       let html = '<div class="results">';
       html += '<div class="results-meta">' + data.results.length + ' results for "' + escapeHtml(data.query) + '"</div>';
-
       for (const r of data.results) {
-        const domain = new URL(r.url).hostname;
+        let domain = "";
+        try { domain = new URL(r.url).hostname; } catch { domain = r.url; }
         html += '<div class="result">';
         html += '<div class="result-url">' + escapeHtml(domain) + '</div>';
         html += '<a class="result-title" href="' + escapeHtml(r.url) + '">' + escapeHtml(r.title) + '</a>';
-        if (r.snippet) {
-          html += '<div class="result-snippet">' + escapeHtml(r.snippet) + '</div>';
-        }
+        if (r.snippet) html += '<div class="result-snippet">' + escapeHtml(r.snippet) + '</div>';
         html += '</div>';
       }
-
       html += '</div>';
       resultsContainer.innerHTML = html;
     }
@@ -325,14 +338,12 @@
 
     searchBtn.addEventListener("click", () => doSearch(searchInput.value));
 
-    // Check if we came back with results in the URL hash
-    if (window.location.hash.startsWith("#results=")) {
-      try {
-        const data = JSON.parse(decodeURIComponent(window.location.hash.slice(9)));
-        searchInput.value = data.query || "";
-        home.classList.add("has-results");
-        renderResults(data);
-      } catch {}
+    // Auto-search if loaded with ?q= param
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has("q")) {
+      const q = urlParams.get("q");
+      searchInput.value = q;
+      doSearch(q);
     }
   </script>
 </body>

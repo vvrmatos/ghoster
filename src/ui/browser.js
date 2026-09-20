@@ -64,10 +64,13 @@ const urlLock = document.getElementById("url-lock");
 const statusText = document.getElementById("status-text");
 let viewReady = false;
 
-const MEMENTO_HOME = "ghoster://home";
+function getMementoPath() {
+  const base = window.location.href.replace(/\/[^/]*$/, "");
+  return base + "/memento.html";
+}
 
 function initBrowser() {
-  view.src = MEMENTO_HOME;
+  view.src = getMementoPath();
 
   view.addEventListener("did-start-loading", () => {
     statusText.textContent = "loading...";
@@ -112,17 +115,19 @@ function navigateTo(input) {
     view.src = "about:blank";
     return;
   }
-  if (url === "ghoster://home" || url === "home") {
-    view.src = MEMENTO_HOME;
+  if (url === "home" || url === "ghoster://home" || url === "memento") {
+    view.src = getMementoPath();
     urlInput.value = "";
     return;
   }
 
-  if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("ghoster://")) {
+  if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("file://")) {
     if (url.includes(".") && !url.includes(" ")) {
       url = "https://" + url;
     } else {
-      url = "ghoster://search?q=" + encodeURIComponent(url);
+      // Search via memento
+      const q = encodeURIComponent(url);
+      url = getMementoPath() + "?q=" + q;
     }
   }
 
@@ -159,7 +164,7 @@ document.getElementById("btn-reload").addEventListener("click", () => {
 });
 
 document.getElementById("btn-home").addEventListener("click", () => {
-  view.src = MEMENTO_HOME;
+  view.src = getMementoPath();
   urlInput.value = "";
 });
 
