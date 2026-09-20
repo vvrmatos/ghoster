@@ -99,10 +99,10 @@ function createTab(url) {
   });
   wv.addEventListener("did-navigate", (e) => {
     tab.url = e.url;
-    if (activeTabId === id) { urlInput.value = e.url; updateLock(e.url); }
+    if (activeTabId === id) { urlInput.value = cleanUrl(e.url); updateLock(e.url); }
   });
   wv.addEventListener("did-navigate-in-page", (e) => {
-    if (e.isMainFrame) { tab.url = e.url; if (activeTabId === id) urlInput.value = e.url; }
+    if (e.isMainFrame) { tab.url = e.url; if (activeTabId === id) urlInput.value = cleanUrl(e.url); }
   });
   wv.addEventListener("page-title-updated", (e) => {
     tab.title = e.title || "untitled";
@@ -127,7 +127,7 @@ function switchTab(id) {
   });
   const tab = tabs.find((t) => t.id === id);
   if (tab) {
-    urlInput.value = tab.url || "";
+    urlInput.value = cleanUrl(tab.url || "");
     updateLock(tab.url || "");
     document.title = (tab.title || "ghoster") + " — ghoster";
   }
@@ -206,8 +206,19 @@ function navigateTo(input) {
   updateLock(url);
 }
 
+function cleanUrl(url) {
+  if (!url) return "";
+  if (url.includes("memento.html")) return "";
+  if (url.startsWith("file://")) return "";
+  return url;
+}
+
 function updateLock(url) {
-  urlLock.textContent = (url && url.startsWith("https://")) ? "🔒" : "⚠️";
+  if (!url || url.startsWith("file://") || url.includes("memento.html")) {
+    urlLock.textContent = "👻";
+    return;
+  }
+  urlLock.textContent = url.startsWith("https://") ? "🔒" : "⚠️";
 }
 
 function escapeHtml(s) {
