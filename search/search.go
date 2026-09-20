@@ -1,13 +1,19 @@
 // Package search is memento: a multi-source, zero-storage search engine that
-// aggregates clearnet (DuckDuckGo), onion (Ahmia), and torrent (BTDigg) results,
-// all fetched through Tor.
+// aggregates clearnet (DuckDuckGo, Brave, Marginalia), onion (Ahmia), and
+// torrent (BTDigg) results, all fetched through Tor.
 package search
 
 import (
+	"crypto/rand"
+	"encoding/hex"
+	"fmt"
+	"html"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -33,8 +39,21 @@ type Results struct {
 	Query   string   `json:"query"`
 }
 
-func torClient(timeout time.Duration) *http.Client {
-	dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:9050", nil, &net.Dialer{Timeout: timeout})
+// circuit returns a random SOCKS credential. Tor's IsolateSOCKSAuth (on by
+// default) gives every distinct user/pass its own circuit and exit node, so
+// each engine — and each retry — looks like a different visitor and the
+// engines never share a rate limit.
+func circuit() string {
+	b := make([]byte, 8)
+	if _, err := rand.Read(b); err != nil {
+		return "g"
+	}
+	return hex.EncodeToString(b)
+}
+
+func torClient(timeout time.Duration, circ string) *http.Client {
+	auth := &proxy.Auth{User: circ, Password: circ}
+	dialer, err := proxy.SOCKS5("tcp", "127.0.0.1:9050", auth, &net.Dialer{Timeout: timeout})
 	if err != nil {
 		return &http.Client{Timeout: timeout}
 	}
@@ -44,52 +63,139 @@ func torClient(timeout time.Duration) *http.Client {
 	}
 }
 
+// fetchT fetches over a fresh Tor circuit. A blocked or rate-limited exit is
+// retried on a new circuit rather than reported as "no results".
 func fetchT(url string, timeout time.Duration) (string, error) {
+	var lastErr error
+	for attempt := 0; attempt < 3; attempt++ {
+		body, code, err := fetchOnce(url, timeout, circuit())
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		if code == 429 || code == 403 || code >= 500 {
+			lastErr = fmt.Errorf("%s: http %d", url, code)
+			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+			continue
+		}
+		return body, nil
+	}
+	return "", lastErr
+}
+
+func fetchOnce(url string, timeout time.Duration, circ string) (string, int, error) {
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	req.Header.Set("User-Agent", ua)
 	req.Header.Set("Accept-Language", "en-US,en;q=0.5")
-	resp, err := torClient(timeout).Do(req)
+	resp, err := torClient(timeout, circ).Do(req)
 	if err != nil {
-		return "", err
+		return "", 0, err
 	}
 	defer resp.Body.Close()
 	b, err := io.ReadAll(resp.Body)
-	return string(b), err
+	return string(b), resp.StatusCode, err
 }
 
-func fetch(url string) (string, error) { return fetchT(url, 12*time.Second) }
+func fetch(url string) (string, error) { return fetchT(url, 15*time.Second) }
 
 var tagRe = regexp.MustCompile(`<[^>]+>`)
 
 func stripTags(s string) string {
-	return strings.TrimSpace(tagRe.ReplaceAllString(s, ""))
+	s = tagRe.ReplaceAllString(s, " ")
+	s = html.UnescapeString(s)
+	return strings.TrimSpace(spaceRe.ReplaceAllString(s, " "))
+}
+
+var spaceRe = regexp.MustCompile(`\s+`)
+
+// isAd rejects sponsored slots and engine-internal redirectors, which are the
+// only "results" that ever survive the parsers without being real pages.
+func isAd(u string) bool {
+	for _, bad := range []string{"duckduckgo.com/y.js", "bing.com/aclick", "/aclk?", "ad_provider=", "googleadservices."} {
+		if strings.Contains(u, bad) {
+			return true
+		}
+	}
+	return false
+}
+
+// dedupeKey normalizes a URL so the same page from two engines collapses.
+func dedupeKey(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return raw
+	}
+	host := strings.TrimPrefix(strings.ToLower(u.Host), "www.")
+	path := strings.TrimSuffix(u.Path, "/")
+	return host + path + "?" + u.RawQuery
+}
+
+// interleave merges per-engine result lists round-robin so the first page the
+// user sees comes from every engine, not just the fastest one.
+func interleave(lists [][]Result) []Result {
+	seen := map[string]bool{}
+	var out []Result
+	for i := 0; ; i++ {
+		added := false
+		for _, l := range lists {
+			if i >= len(l) {
+				continue
+			}
+			added = true
+			k := dedupeKey(l[i].URL)
+			if seen[k] {
+				continue
+			}
+			seen[k] = true
+			out = append(out, l[i])
+		}
+		if !added {
+			return out
+		}
+	}
 }
 
 // SearchWeb returns only clearnet results — fast, so the UI can render instantly.
+// Every engine runs in parallel over its own Tor circuit; results are merged
+// round-robin and deduped so one engine going down never empties the page.
 func SearchWeb(query string) Results {
-	return Results{Query: query, Web: searchDDG(query)}
+	lists := make([][]Result, 4)
+	var wg sync.WaitGroup
+	wg.Add(4)
+	go func() { defer wg.Done(); lists[0] = searchBrave(query) }()
+	go func() { defer wg.Done(); lists[1] = searchDDG(query) }()
+	go func() { defer wg.Done(); lists[2] = searchMarginalia(query, 1) }()
+	go func() { defer wg.Done(); lists[3] = searchMarginalia(query, 2) }()
+	wg.Wait()
+	return Results{Query: query, Web: capResults(interleave(lists), 120)}
 }
 
 // SearchDark returns onion + torrent results (slower; fetched after web).
+// Two onion indexes are queried because either one can be down — Ahmia's
+// backend 504s for hours at a time.
 func SearchDark(query string) Results {
 	out := Results{Query: query}
+	onion := make([][]Result, 3)
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() { defer wg.Done(); out.Onion = searchAhmia(query) }()
+	wg.Add(4)
+	go func() { defer wg.Done(); onion[0] = searchTordex(query, 1) }()
+	go func() { defer wg.Done(); onion[1] = searchTordex(query, 2) }()
+	go func() { defer wg.Done(); onion[2] = searchAhmia(query) }()
 	go func() { defer wg.Done(); out.Torrent = searchBTDigg(query) }()
 	wg.Wait()
+	out.Onion = capResults(interleave(onion), 60)
 	return out
 }
 
-// Search runs all three sources (kept for compatibility).
+// Search runs all sources (kept for compatibility).
 func Search(query string) Results {
 	out := Results{Query: query}
 	var wg sync.WaitGroup
 	wg.Add(3)
-	go func() { defer wg.Done(); out.Web = searchDDG(query) }()
+	go func() { defer wg.Done(); out.Web = SearchWeb(query).Web }()
 	go func() { defer wg.Done(); out.Onion = searchAhmia(query) }()
 	go func() { defer wg.Done(); out.Torrent = searchBTDigg(query) }()
 	wg.Wait()
@@ -100,7 +206,7 @@ var (
 	ddgResultRe = regexp.MustCompile(`(?is)<a[^>]*class="result__a"[^>]*>.*?</a>`)
 	ddgHrefRe   = regexp.MustCompile(`(?is)href="([^"]+)"`)
 	ddgSnipRe   = regexp.MustCompile(`(?is)<a[^>]+class="result__snippet"[^>]*>(.*?)</a>`)
-	uddgRe = regexp.MustCompile(`uddg=([^&]+)`)
+	uddgRe      = regexp.MustCompile(`uddg=([^&]+)`)
 )
 
 func parseDDGPage(html string, seen map[string]bool) []Result {
@@ -119,7 +225,7 @@ func parseDDGPage(html string, seen map[string]bool) []Result {
 			u = "https:" + u
 		}
 		title := stripTags(block)
-		if !strings.HasPrefix(u, "http") || title == "" || seen[u] {
+		if !strings.HasPrefix(u, "http") || title == "" || seen[u] || isAd(u) {
 			continue
 		}
 		seen[u] = true
@@ -141,18 +247,149 @@ func searchDDG(query string) []Result {
 	return capResults(results, 60)
 }
 
+var (
+	braveHrefRe  = regexp.MustCompile(`(?is)<a href="(https?://[^"]+)"`)
+	braveTitleRe = regexp.MustCompile(`(?is)<div class="title search-snippet-title[^"]*"[^>]*>(.*?)</div>`)
+	braveSnipRe  = regexp.MustCompile(`(?is)<div class="content [^"]*"[^>]*>(.*?)</div>`)
+)
+
+// searchBrave scrapes Brave Search, which serves its own index and answers
+// plain HTML over Tor (20 hits per query, no CAPTCHA).
+func searchBrave(query string) []Result {
+	h, err := fetchT("https://search.brave.com/search?q="+urlEncode(query), 20*time.Second)
+	if err != nil {
+		return nil
+	}
+	return parseBrave(h)
+}
+
+func parseBrave(h string) []Result {
+	var results []Result
+	seen := map[string]bool{}
+	for _, chunk := range strings.Split(h, `data-type="web"`)[1:] {
+		hm := braveHrefRe.FindStringSubmatch(chunk)
+		if hm == nil {
+			continue
+		}
+		u := hm[1]
+		if strings.Contains(u, "imgs.search.brave.com") || seen[u] {
+			continue
+		}
+		tm := braveTitleRe.FindStringSubmatch(chunk)
+		if tm == nil {
+			continue
+		}
+		title := stripTags(tm[1])
+		if title == "" {
+			continue
+		}
+		seen[u] = true
+		r := Result{URL: u, Title: title, Source: "web"}
+		if sm := braveSnipRe.FindStringSubmatch(chunk); sm != nil {
+			r.Snippet = truncate(stripTags(sm[1]), 200)
+		}
+		results = append(results, r)
+	}
+	return results
+}
+
+var marginaliaRe = regexp.MustCompile(`(?is)<section[^>]*class="card search-result"[^>]*>(.*?)</section>`)
+var margTitleRe = regexp.MustCompile(`(?is)<a[^>]*class="title"[^>]*href="([^"]+)"[^>]*>(.*?)</a>`)
+var margDescRe = regexp.MustCompile(`(?is)<p class="description">(.*?)</p>`)
+
+// searchMarginalia queries Marginalia, an independent crawler that surfaces the
+// small/old web the big engines bury. It allows deep pagination over Tor.
+func searchMarginalia(query string, page int) []Result {
+	u := "https://old-search.marginalia.nu/search?query=" + urlEncode(query)
+	if page > 1 {
+		u += "&page=" + itoa(page)
+	}
+	h, err := fetchT(u, 20*time.Second)
+	if err != nil {
+		return nil
+	}
+	return parseMarginalia(h)
+}
+
+func parseMarginalia(h string) []Result {
+	var results []Result
+	for _, m := range marginaliaRe.FindAllStringSubmatch(h, -1) {
+		tm := margTitleRe.FindStringSubmatch(m[1])
+		if tm == nil {
+			continue
+		}
+		r := Result{URL: tm[1], Title: stripTags(tm[2]), Source: "web"}
+		if r.Title == "" {
+			continue
+		}
+		if dm := margDescRe.FindStringSubmatch(m[1]); dm != nil {
+			r.Snippet = truncate(stripTags(dm[1]), 200)
+		}
+		results = append(results, r)
+	}
+	return results
+}
+
+var (
+	tordexBlockRe = regexp.MustCompile(`(?is)<div class="result[^"]*">(.*?)</div>\s*</div>`)
+	tordexTitleRe = regexp.MustCompile(`(?is)<h5 id="title"[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>`)
+	tordexDescRe  = regexp.MustCompile(`(?is)<p id="desc"[^>]*>(.*?)</p>`)
+)
+
+// searchTordex queries TorDex, an onion index that stays up when Ahmia does not.
+func searchTordex(query string, page int) []Result {
+	u := "http://tordexu73joywapk2txdr54jed4imqledpcvcuf75qsas2gwdgksvnyd.onion/search?query=" + urlEncode(query)
+	if page > 1 {
+		u += "&page=" + itoa(page)
+	}
+	h, err := fetchT(u, 35*time.Second)
+	if err != nil {
+		return nil
+	}
+	return parseTordex(h)
+}
+
+func parseTordex(h string) []Result {
+	var results []Result
+	seen := map[string]bool{}
+	for _, m := range tordexBlockRe.FindAllStringSubmatch(h, -1) {
+		tm := tordexTitleRe.FindStringSubmatch(m[1])
+		if tm == nil || !strings.Contains(tm[1], ".onion") || seen[tm[1]] {
+			continue
+		}
+		title := stripTags(tm[2])
+		if title == "" {
+			continue
+		}
+		seen[tm[1]] = true
+		r := Result{URL: tm[1], Title: title, Source: "onion"}
+		if dm := tordexDescRe.FindStringSubmatch(m[1]); dm != nil {
+			r.Snippet = truncate(stripTags(dm[1]), 200)
+		}
+		results = append(results, r)
+	}
+	return results
+}
+
 var ahmiaRe = regexp.MustCompile(`(?is)<a[^>]+href="([^"]*(?:redirect_url=|http[^"]*\.onion)[^"]*)"[^>]*>(.*?)</a>`)
 var redirectRe = regexp.MustCompile(`redirect_url=([^&"]+)`)
 
 func searchAhmia(query string) []Result {
 	// Ahmia redirects clearnet-over-Tor to its onion; hit the onion directly.
-	html, err := fetchT("http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/search/?q="+urlEncode(query), 20*time.Second)
-	if err != nil {
+	// The onion 504s on bad circuits, so give it a second shot.
+	var page string
+	for attempt := 0; attempt < 2 && page == ""; attempt++ {
+		h, err := fetchT("http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/search/?q="+urlEncode(query), 25*time.Second)
+		if err == nil && strings.Contains(h, "redirect_url=") {
+			page = h
+		}
+	}
+	if page == "" {
 		return nil
 	}
 	var results []Result
 	seen := map[string]bool{}
-	for _, m := range ahmiaRe.FindAllStringSubmatch(html, -1) {
+	for _, m := range ahmiaRe.FindAllStringSubmatch(page, -1) {
 		u := m[1]
 		if loc := redirectRe.FindStringSubmatch(u); loc != nil {
 			u = urlDecode(loc[1])
@@ -168,30 +405,58 @@ func searchAhmia(query string) []Result {
 }
 
 var (
-	btBlockRe = regexp.MustCompile(`(?is)<div class="one_result".*?</div>\s*</div>`)
-	btNameRe  = regexp.MustCompile(`(?is)<div class="torrent_name"[^>]*>.*?<a[^>]*>(.*?)</a>`)
-	btMagRe   = regexp.MustCompile(`href="(magnet:\?[^"]+)"`)
-	btSizeRe  = regexp.MustCompile(`(?is)<span class="torrent_size"[^>]*>(.*?)</span>`)
+	btNameRe = regexp.MustCompile(`(?is)<div class="torrent_name"[^>]*>.*?<a[^>]*>(.*?)</a>`)
+	btMagRe  = regexp.MustCompile(`href="(magnet:\?[^"]+)"`)
+	btSizeRe = regexp.MustCompile(`(?is)<div class="torrent_size"[^>]*>(.*?)</div>`)
 )
 
 func searchBTDigg(query string) []Result {
-	html, err := fetch("https://btdig.com/search?q=" + urlEncode(query))
+	pages := make([][]Result, 3)
+	var wg sync.WaitGroup
+	wg.Add(len(pages))
+	for i := range pages {
+		go func(i int) { defer wg.Done(); pages[i] = btdiggPage(query, i) }(i)
+	}
+	wg.Wait()
+	return capResults(interleave(pages), 50)
+}
+
+func btdiggPage(query string, page int) []Result {
+	u := "https://btdig.com/search?q=" + urlEncode(query)
+	if page > 0 {
+		u += "&p=" + itoa(page)
+	}
+	h, err := fetchT(u, 20*time.Second)
 	if err != nil {
 		return nil
 	}
+	return parseBTDigg(h)
+}
+
+// parseBTDigg walks each one_result block. The blocks nest dozens of file-tree
+// divs, so they are split on the class marker rather than matched as a unit.
+func parseBTDigg(h string) []Result {
 	var results []Result
-	for _, block := range btBlockRe.FindAllString(html, -1) {
+	for _, block := range strings.Split(h, `class="one_result"`)[1:] {
 		name := btNameRe.FindStringSubmatch(block)
 		mag := btMagRe.FindStringSubmatch(block)
 		if name == nil || mag == nil {
 			continue
 		}
 		title := stripTags(name[1])
+		if title == "" {
+			continue
+		}
 		snippet := ""
 		if size := btSizeRe.FindStringSubmatch(block); size != nil {
 			snippet = "size: " + stripTags(size[1])
 		}
-		results = append(results, Result{URL: mag[1], Title: title, Snippet: snippet, Source: "torrent"})
+		results = append(results, Result{
+			URL:     html.UnescapeString(mag[1]),
+			Title:   title,
+			Snippet: snippet,
+			Source:  "torrent",
+		})
 	}
 	return capResults(results, 50)
 }
@@ -202,6 +467,8 @@ func capResults(r []Result, max int) []Result {
 	}
 	return r
 }
+
+func itoa(n int) string { return strconv.Itoa(n) }
 
 func truncate(s string, n int) string {
 	if len(s) > n {
