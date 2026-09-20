@@ -1,0 +1,339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>memento</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600&display=swap');
+
+    :root {
+      --bg:      #08080c;
+      --bg1:     #0e0e14;
+      --surface: #1c1c2a;
+      --border:  #252535;
+      --text:    #d0d0dc;
+      --dim:     #5a5a6e;
+      --accent:  #8b7cf6;
+      --green:   #34d399;
+    }
+
+    * { margin: 0; padding: 0; box-sizing: border-box; }
+
+    body {
+      font-family: 'Inter', -apple-system, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+    }
+
+    /* ── HOME STATE ── */
+    .home {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 85vh;
+      gap: 24px;
+      padding: 40px 20px;
+    }
+
+    .home.has-results {
+      min-height: auto;
+      padding: 30px 20px 16px;
+      justify-content: flex-start;
+    }
+
+    .logo {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-ghost {
+      font-size: 36px;
+      filter: grayscale(0.3);
+    }
+
+    .home.has-results .logo-ghost { font-size: 24px; }
+
+    .logo-text {
+      font-size: 42px;
+      font-weight: 300;
+      letter-spacing: 8px;
+      color: var(--text);
+    }
+
+    .home.has-results .logo-text { font-size: 24px; letter-spacing: 4px; }
+
+    .search-box {
+      width: 100%;
+      max-width: 620px;
+      display: flex;
+      background: var(--bg1);
+      border: 1px solid var(--border);
+      border-radius: 24px;
+      padding: 0 20px;
+      height: 48px;
+      align-items: center;
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+
+    .home.has-results .search-box { height: 40px; border-radius: 20px; }
+
+    .search-box:focus-within {
+      border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(139, 124, 246, 0.1);
+    }
+
+    .search-icon { color: var(--dim); font-size: 16px; margin-right: 12px; }
+
+    .search-input {
+      flex: 1;
+      background: none;
+      border: none;
+      color: var(--text);
+      font-family: inherit;
+      font-size: 15px;
+      outline: none;
+      caret-color: var(--accent);
+    }
+
+    .home.has-results .search-input { font-size: 13px; }
+    .search-input::placeholder { color: var(--dim); }
+
+    .search-btn {
+      background: none;
+      border: none;
+      color: var(--accent);
+      cursor: pointer;
+      font-size: 14px;
+      padding: 4px 8px;
+      border-radius: 6px;
+      transition: background 0.1s;
+    }
+
+    .search-btn:hover { background: var(--surface); }
+
+    .tagline {
+      font-size: 12px;
+      color: var(--dim);
+      letter-spacing: 2px;
+    }
+
+    .home.has-results .tagline { display: none; }
+
+    .features {
+      display: flex;
+      gap: 32px;
+      margin-top: 8px;
+    }
+
+    .home.has-results .features { display: none; }
+
+    .feature {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      color: var(--dim);
+    }
+
+    .feature-dot { color: var(--green); font-size: 8px; }
+
+    /* ── RESULTS ── */
+    .results {
+      max-width: 700px;
+      margin: 0 auto;
+      padding: 0 20px 40px;
+    }
+
+    .results-meta {
+      font-size: 11px;
+      color: var(--dim);
+      margin-bottom: 16px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .result {
+      margin-bottom: 20px;
+      padding: 12px 16px;
+      border-radius: 10px;
+      transition: background 0.1s;
+    }
+
+    .result:hover { background: var(--bg1); }
+
+    .result-url {
+      font-size: 11px;
+      color: var(--dim);
+      margin-bottom: 3px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .result-title {
+      font-size: 16px;
+      font-weight: 500;
+      color: var(--accent);
+      text-decoration: none;
+      display: block;
+      margin-bottom: 4px;
+      line-height: 1.4;
+    }
+
+    .result-title:hover { text-decoration: underline; }
+
+    .result-snippet {
+      font-size: 13px;
+      color: var(--dim);
+      line-height: 1.5;
+    }
+
+    .loading {
+      text-align: center;
+      padding: 40px;
+      color: var(--dim);
+      font-size: 13px;
+    }
+
+    .loading-dot {
+      display: inline-block;
+      animation: blink 1s step-end infinite;
+    }
+
+    @keyframes blink { 50% { opacity: 0; } }
+
+    .error {
+      text-align: center;
+      padding: 40px;
+      color: var(--dim);
+      font-size: 13px;
+    }
+
+    .no-results {
+      text-align: center;
+      padding: 60px 20px;
+      color: var(--dim);
+    }
+
+    .no-results-icon { font-size: 32px; margin-bottom: 12px; opacity: 0.5; }
+    .no-results-text { font-size: 13px; }
+
+    .footer {
+      text-align: center;
+      padding: 20px;
+      font-size: 10px;
+      color: var(--dim);
+      opacity: 0.4;
+      letter-spacing: 1px;
+    }
+  </style>
+</head>
+<body>
+  <div class="home" id="home">
+    <div class="logo">
+      <span class="logo-ghost">👻</span>
+      <span class="logo-text">memento</span>
+    </div>
+
+    <div class="search-box">
+      <span class="search-icon">⌕</span>
+      <input type="text" class="search-input" id="search" placeholder="search the web anonymously" autofocus spellcheck="false" autocomplete="off">
+      <button class="search-btn" id="search-btn">→</button>
+    </div>
+
+    <div class="tagline">remembers nothing. finds everything.</div>
+
+    <div class="features">
+      <div class="feature"><span class="feature-dot">●</span> no logs</div>
+      <div class="feature"><span class="feature-dot">●</span> no cookies</div>
+      <div class="feature"><span class="feature-dot">●</span> no tracking</div>
+      <div class="feature"><span class="feature-dot">●</span> tor routed</div>
+    </div>
+  </div>
+
+  <div id="results-container"></div>
+
+  <div class="footer" id="footer">memento — nothing stored, nothing remembered</div>
+
+  <script>
+    const searchInput = document.getElementById("search");
+    const searchBtn = document.getElementById("search-btn");
+    const home = document.getElementById("home");
+    const resultsContainer = document.getElementById("results-container");
+
+    async function doSearch(query) {
+      if (!query.trim()) return;
+
+      home.classList.add("has-results");
+      resultsContainer.innerHTML = '<div class="loading">searching through tor<span class="loading-dot">_</span></div>';
+
+      try {
+        // Use parent window's ghoster API (we're in a webview, so use postMessage)
+        // Actually, memento is loaded as a local file in the webview, so we need
+        // to communicate via the URL or a different mechanism.
+        // Simplest: navigate to a search URL that ghoster's main process intercepts.
+        const params = new URLSearchParams({ q: query });
+        window.location.href = "ghoster://search?" + params.toString();
+      } catch (err) {
+        resultsContainer.innerHTML = '<div class="error">search failed — ' + err.message + '</div>';
+      }
+    }
+
+    function renderResults(data) {
+      if (!data.ok) {
+        resultsContainer.innerHTML = '<div class="error">search failed — try again</div>';
+        return;
+      }
+
+      if (data.results.length === 0) {
+        resultsContainer.innerHTML = `
+          <div class="no-results">
+            <div class="no-results-icon">👻</div>
+            <div class="no-results-text">nothing found — even ghosts have limits</div>
+          </div>`;
+        return;
+      }
+
+      let html = '<div class="results">';
+      html += '<div class="results-meta">' + data.results.length + ' results for "' + escapeHtml(data.query) + '"</div>';
+
+      for (const r of data.results) {
+        const domain = new URL(r.url).hostname;
+        html += '<div class="result">';
+        html += '<div class="result-url">' + escapeHtml(domain) + '</div>';
+        html += '<a class="result-title" href="' + escapeHtml(r.url) + '">' + escapeHtml(r.title) + '</a>';
+        if (r.snippet) {
+          html += '<div class="result-snippet">' + escapeHtml(r.snippet) + '</div>';
+        }
+        html += '</div>';
+      }
+
+      html += '</div>';
+      resultsContainer.innerHTML = html;
+    }
+
+    function escapeHtml(s) {
+      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+    }
+
+    searchInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") doSearch(searchInput.value);
+    });
+
+    searchBtn.addEventListener("click", () => doSearch(searchInput.value));
+
+    // Check if we came back with results in the URL hash
+    if (window.location.hash.startsWith("#results=")) {
+      try {
+        const data = JSON.parse(decodeURIComponent(window.location.hash.slice(9)));
+        searchInput.value = data.query || "";
+        home.classList.add("has-results");
+        renderResults(data);
+      } catch {}
+    }
+  </script>
+</body>
+</html>

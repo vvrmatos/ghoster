@@ -8,5 +8,6 @@ contextBridge.exposeInMainWorld("ghoster", {
   getCountries: () => ipcRenderer.invoke("get-countries"),
   setCountry: (code) => ipcRenderer.invoke("set-country", code),
   getGeo: () => ipcRenderer.invoke("get-geo"),
+  mementoSearch: (query) => ipcRenderer.invoke("memento-search", query),
   onTorReady: (cb) => ipcRenderer.on("tor-ready", (_e, ok) => cb(ok)),
 });

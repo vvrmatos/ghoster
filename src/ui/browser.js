@@ -62,8 +62,10 @@ const urlLock = document.getElementById("url-lock");
 const statusText = document.getElementById("status-text");
 let viewReady = false;
 
+const MEMENTO_HOME = "ghoster://home";
+
 function initBrowser() {
-  navigateTo("https://duckduckgo.com");
+  view.src = MEMENTO_HOME;
 
   view.addEventListener("did-start-loading", () => {
     statusText.textContent = "loading...";
@@ -104,16 +106,21 @@ function navigateTo(input) {
   if (url === "") return;
 
   // Internal commands
-  if (url === "about:blank" || url === "ghoster://home") {
+  if (url === "about:blank") {
     view.src = "about:blank";
     return;
   }
+  if (url === "ghoster://home" || url === "home") {
+    view.src = MEMENTO_HOME;
+    urlInput.value = "";
+    return;
+  }
 
-  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+  if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("ghoster://")) {
     if (url.includes(".") && !url.includes(" ")) {
       url = "https://" + url;
     } else {
-      url = "https://duckduckgo.com/?q=" + encodeURIComponent(url);
+      url = "ghoster://search?q=" + encodeURIComponent(url);
     }
   }
 
@@ -147,6 +154,11 @@ document.getElementById("btn-fwd").addEventListener("click", () => {
 
 document.getElementById("btn-reload").addEventListener("click", () => {
   if (viewReady) view.reload();
+});
+
+document.getElementById("btn-home").addEventListener("click", () => {
+  view.src = MEMENTO_HOME;
+  urlInput.value = "";
 });
 
 // New identity

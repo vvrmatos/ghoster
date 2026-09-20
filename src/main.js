@@ -4,6 +4,7 @@ const {
   session,
   ipcMain,
   protocol,
+  net: electronNet,
   Menu,
 } = require("electron");
 const { execFile, exec } = require("child_process");
@@ -23,6 +24,10 @@ const UA =
 const SESSION_HASH = crypto.randomBytes(32).toString("hex");
 
 // ── CHROMIUM HARDENING ──
+
+protocol.registerSchemesAsPrivileged([
+  { scheme: "ghoster", privileges: { standard: true, secure: true, supportFetchAPI: true } },
+]);
 
 app.commandLine.appendSwitch("proxy-server", TOR_SOCKS);
 app.commandLine.appendSwitch("host-resolver-rules", "MAP * ~NOTFOUND, EXCLUDE 127.0.0.1");
@@ -49,6 +54,7 @@ app.commandLine.appendSwitch("disable-domain-reliability");
 app.commandLine.appendSwitch("disable-breakpad");
 
 const COUNTRIES = require("./countries");
+const { search: mementoSearch } = require("./search");
 
 let mainWindow;
 let torReady = false;
@@ -179,6 +185,10 @@ ipcMain.handle("set-country", (_e, code) => {
   return { ok: true, country: c };
 });
 
+ipcMain.handle("memento-search", async (_e, query) => {
+  return await mementoSearch(query);
+});
+
 ipcMain.handle("get-geo", () => {
   let c = COUNTRIES[currentCountry];
   if (currentCountry === "auto") {
@@ -189,9 +199,34 @@ ipcMain.handle("get-geo", () => {
   return { lat: c.lat, lng: c.lng, tz: c.tz, locale: c.locale, lang: c.lang };
 });
 
+// ── CUSTOM PROTOCOL ──
+
+function registerProtocol() {
+  protocol.handle("ghoster", async (request) => {
+    const url = new URL(request.url);
+
+    if (url.hostname === "search") {
+      const query = url.searchParams.get("q") || "";
+      const results = await mementoSearch(query);
+      const resultsJson = encodeURIComponent(JSON.stringify(results));
+      const mementoPath = path.join(__dirname, "ui", "memento.html");
+      const redirect = `file://${mementoPath}#results=${resultsJson}`;
+      return electronNet.fetch(redirect);
+    }
+
+    if (url.hostname === "home") {
+      const mementoPath = path.join(__dirname, "ui", "memento.html");
+      return electronNet.fetch(`file://${mementoPath}`);
+    }
+
+    return new Response("not found", { status: 404 });
+  });
+}
+
 // ── LAUNCH ──
 
 app.whenReady().then(async () => {
+  registerProtocol();
   createWindow();
   await waitForTor();
   mainWindow.webContents.send("tor-ready", torReady);
