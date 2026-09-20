@@ -359,29 +359,13 @@
         }
       } catch {}
 
-      // lite endpoint for extra unique results
-      try {
-        const lite = await (await fetch("https://lite.duckduckgo.com/lite/?q=" + encodeURIComponent(query))).text();
-        const liteRe = /<a[^>]*class="result-link"[^>]*href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-        let m;
-        while ((m = liteRe.exec(lite)) !== null) {
-          let url = m[1];
-          const u = url.match(/uddg=([^&]+)/);
-          if (u) url = decodeURIComponent(u[1]);
-          const title = m[2].replace(/<[^>]+>/g, "").trim();
-          if (url.startsWith("http") && title && !seen[url]) {
-            seen[url] = 1;
-            results.push({ url, title, source: "web" });
-          }
-        }
-      } catch {}
-
       return results.slice(0, 60);
     }
 
     // ── Ahmia (.onion hidden services) ──
     async function searchAhmia(query) {
-      const resp = await fetch("https://ahmia.fi/search/?q=" + encodeURIComponent(query));
+      // Ahmia redirects clearnet-over-Tor to its onion; hit the onion directly.
+      const resp = await fetch("http://juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd.onion/search/?q=" + encodeURIComponent(query));
       const html = await resp.text();
       const results = [];
       // Ahmia results: <li class="result"><h4><a href="/search/redirect?...redirect_url=URL">title</a>

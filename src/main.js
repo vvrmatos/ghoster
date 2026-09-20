@@ -101,7 +101,7 @@ function hardenSession(ses) {
     const h = details.requestHeaders;
     // Search backends serve broken/empty HTML to unrecognized UAs, so give
     // them a normal Firefox UA. Everyone else sees the phantom UA.
-    if (/duckduckgo\.com|ahmia\.fi|btdig\.com/.test(details.url)) {
+    if (/duckduckgo\.com|ahmia\.fi|btdig\.com|juhanurmihxlp77nkq76byazcldy2hlmovfu2epvl5ankdibsot4csyd\.onion/.test(details.url)) {
       h["User-Agent"] = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0";
     } else {
       h["User-Agent"] = getUA();
