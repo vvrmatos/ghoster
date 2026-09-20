@@ -1,6 +1,6 @@
 {
   "name": "ghoster",
-  "version": "0.1.0",
+  "version": "1.0.1",
   "description": "Anonymous browser. Tor built-in. No traces.",
   "main": "src/main.js",
   "scripts": {
