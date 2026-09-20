@@ -18,12 +18,12 @@ const TOR_SOCKS = "socks5://127.0.0.1:9050";
 const TOR_HOST = "127.0.0.1";
 const TOR_PORT = 9050;
 
-const UA_PHANTOM = "Mozilla/5.0 (PhantomOS 1.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 Ghoster/0.1.0";
-const UA_STEALTH = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0";
-let uaMode = "phantom";
-let jsEnabled = true;
+// Phantom is the only mode. Gecko token kept for render compat; no "Firefox"
+// token so detection sites report Ghoster / PhantomOS, not Firefox.
+const UA_PHANTOM = "Mozilla/5.0 (PhantomOS 1.0; rv:128.0) Gecko/20100101 Ghoster/1.0.1";
+let jsEnabled = false; // JS off by default — user opts in
 
-function getUA() { return uaMode === "phantom" ? UA_PHANTOM : UA_STEALTH; }
+function getUA() { return UA_PHANTOM; }
 
 // Session integrity hash — every session gets a unique fingerprint for internal verification
 const SESSION_HASH = crypto.randomBytes(32).toString("hex");
@@ -214,13 +214,11 @@ ipcMain.handle("verify-integrity", (_e, data) => {
 });
 
 ipcMain.handle("get-ua-mode", () => {
-  return { mode: uaMode, ua: getUA() };
+  return { mode: "phantom", ua: getUA() };
 });
 
-ipcMain.handle("set-ua-mode", (_e, mode) => {
-  uaMode = mode === "stealth" ? "stealth" : "phantom";
-  session.defaultSession.setUserAgent(getUA());
-  return { mode: uaMode, ua: getUA() };
+ipcMain.handle("set-ua-mode", () => {
+  return { mode: "phantom", ua: getUA() };
 });
 
 ipcMain.handle("toggle-js", () => {
@@ -317,17 +315,20 @@ app.on("window-all-closed", () => app.quit());
 
 app.on("web-contents-created", (_e, contents) => {
   contents.on("dom-ready", () => {
-    if (!jsEnabled && contents.getType() === "webview") {
-      contents.executeJavaScript(`
-        document.querySelectorAll('script').forEach(s => s.remove());
-        const obs = new MutationObserver(muts => {
-          muts.forEach(m => m.addedNodes.forEach(n => {
-            if (n.tagName === 'SCRIPT') n.remove();
-          }));
-        });
-        obs.observe(document.documentElement, { childList: true, subtree: true });
-      `).catch(() => {});
-    }
+    if (jsEnabled || contents.getType() !== "webview") return;
+    // Never strip JS from our own local pages (memento needs JS to work)
+    let url = "";
+    try { url = contents.getURL(); } catch {}
+    if (!url || url.startsWith("file://") || url.includes("memento.html")) return;
+    contents.executeJavaScript(`
+      document.querySelectorAll('script').forEach(s => s.remove());
+      const obs = new MutationObserver(muts => {
+        muts.forEach(m => m.addedNodes.forEach(n => {
+          if (n.tagName === 'SCRIPT') n.remove();
+        }));
+      });
+      obs.observe(document.documentElement, { childList: true, subtree: true });
+    `).catch(() => {});
   });
   // Block all navigation to non-http(s) URLs
   contents.on("will-navigate", (event, url) => {

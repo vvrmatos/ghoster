@@ -331,33 +331,8 @@ document.getElementById("btn-shield").addEventListener("click", async () => {
   }
 });
 
-// UA mode toggle
-const modePhantom = document.getElementById("mode-phantom");
-const modeStealth = document.getElementById("mode-stealth");
-const modeHint = document.getElementById("mode-hint");
-
-async function updateModeUI() {
-  const { mode } = await window.ghoster.getUAMode();
-  modePhantom.classList.toggle("active", mode === "phantom");
-  modeStealth.classList.toggle("active", mode === "stealth");
-  modeHint.textContent = mode === "phantom"
-    ? "phantom mode — sites see Ghoster on PhantomOS"
-    : "stealth mode — sites see Firefox on Windows";
-}
-
-modePhantom.addEventListener("click", async () => {
-  await window.ghoster.setUAMode("phantom");
-  updateModeUI();
-  const w = getActiveWebview();
-  if (w) { w.setUserAgent("Mozilla/5.0 (PhantomOS 1.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 Ghoster/0.1.0"); w.reload(); }
-});
-
-modeStealth.addEventListener("click", async () => {
-  await window.ghoster.setUAMode("stealth");
-  updateModeUI();
-  const w = getActiveWebview();
-  if (w) { w.setUserAgent("Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0"); w.reload(); }
-});
+// Phantom is the only mode.
+function updateModeUI() {}
 
 // JS toggle
 const jsToggleBtn = document.getElementById("btn-js-toggle");
@@ -369,7 +344,7 @@ async function updateJSUI() {
   jsToggleBtn.classList.toggle("active", jsEnabled);
   jsHint.textContent = jsEnabled
     ? "JS on — fingerprints poisoned (canvas, WebGL, audio)"
-    : "JS off — maximum safety, some sites will break";
+    : "JS off — maximum safety. turn on only if a site needs it.";
   if (viewReady) {
     view.setAudioMuted(false);
     const wc = view.getWebContents ? view.getWebContents() : null;
