@@ -158,7 +158,7 @@ function mementoHTML() {
   <div class="m-wrap">
     <div class="m-home" id="m-home">
       <div class="m-logo"><span class="m-logo-wrap"><span class="m-ring"></span><img src="${iconUrl}"></span><span>ghoster</span></div>
-      <div class="m-philo">memento · memoria oblivio</div>
+      <div class="m-philo">memento</div>
       <div class="m-box"><span class="m-ic">⌕</span><input class="m-input" placeholder="memoria oblivio" spellcheck="false"><button class="m-go">→</button></div>
       <div class="m-tag">trust no one.</div>
       <div class="m-feat"><span>● no logs</span><span>● no cookies</span><span>● no tracking</span><span>● tor routed</span></div>
@@ -179,7 +179,7 @@ function mementoHTML() {
     .m-home.has .m-ring{width:36px;height:36px;top:-5px;left:-5px;}
     @keyframes mspin{to{transform:rotate(360deg);}}
     .m-logo span{font-size:38px;font-weight:300;letter-spacing:8px;}
-    .m-philo{font-size:10px;color:#5a5a6e;letter-spacing:4px;text-transform:lowercase;opacity:.6;margin-top:-14px;}
+    .m-philo{font-size:11px;color:#5a5a6e;letter-spacing:6px;text-transform:lowercase;opacity:.6;margin-top:-14px;text-align:center;width:100%;}
     .m-home.has .m-logo img{width:26px;height:26px;} .m-home.has .m-logo span{font-size:22px;}
     .m-home.has .m-philo{display:none;}
     .m-box{width:90%;max-width:620px;display:flex;align-items:center;background:#0e0e14;border:1px solid #252535;border-radius:24px;padding:0 18px;height:48px;}
