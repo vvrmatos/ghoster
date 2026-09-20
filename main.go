@@ -43,7 +43,7 @@ func main() {
 			WindowIsTranslucent:  false,
 			About: &mac.AboutInfo{
 				Title:   "Ghoster",
-				Message: "Anonymous browser. Tor built-in.\nEngine: WebKit. Core: Go.\n© 2026 spaceman y2k38",
+				Message: "Anonymous browser. Tor built-in.\nEngine: WebKit. Core: Go.\n© 2026 Ghoster",
 			},
 		},
 	})

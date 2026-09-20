@@ -138,4 +138,4 @@ changes its markup the test fails instead of the app quietly showing nothing.
 
 ## License
 
-MIT — spaceman y2k38
+MIT — © 2026 Ghoster
