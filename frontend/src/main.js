@@ -154,22 +154,14 @@ function loadMemento(t) {
 
 // ── MEMENTO (native, in-app) ──
 
-// ghostMark draws the logo as SVG so the ring is a live element: an arc orbits
-// the ghost on its own, independent of the icon artwork.
-let markSeq = 0;
+// ghostMark is the real app icon with a light that travels along the ring
+// already drawn in the artwork. The overlay circle matches the ring measured
+// from icon.png: centre 253,241 and radius 144 in its 512px space.
 function ghostMark() {
-  const g = "gm" + ++markSeq;
-  return `<svg class="m-mark" viewBox="0 0 64 64" aria-hidden="true">
-    <defs><linearGradient id="${g}" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#00c2ff"/><stop offset="1" stop-color="#0060ff"/>
-    </linearGradient></defs>
-    <circle class="m-ring-base" cx="32" cy="32" r="27" fill="none" stroke="url(#${g})" stroke-width="4"/>
-    <circle class="m-ring-arc" cx="32" cy="32" r="27" fill="none" stroke="url(#${g})" stroke-width="4" stroke-linecap="round"/>
-    <g transform="translate(32 32) scale(1.22) translate(-32 -32)">
-      <path class="m-ghost" d="M32 17c-7.2 0-13 5.8-13 13v13.5c0 2 2.3 3 3.7 1.7l2.4-2.2c1-.9 2.5-.9 3.5 0l1.6 1.5c1 .9 2.5.9 3.5 0l1.6-1.5c1-.9 2.5-.9 3.5 0l2.4 2.2c1.4 1.3 3.7.3 3.7-1.7V30c0-7.2-5.8-13-13-13z"/>
-      <ellipse class="m-eye" cx="27.6" cy="29.5" rx="2" ry="2.8"/>
-      <ellipse class="m-eye" cx="36.4" cy="29.5" rx="2" ry="2.8"/>
-    </g>
+  return `<img class="m-mark" src="${iconUrl}" alt="ghoster">
+  <svg class="m-halo" viewBox="0 0 512 512" aria-hidden="true">
+    <circle class="m-ring-arc" cx="253" cy="241" r="144" fill="none"
+      stroke="#9fe3ff" stroke-width="26" stroke-linecap="round"/>
   </svg>`;
 }
 
@@ -191,14 +183,11 @@ function mementoHTML() {
     .m-home.has{min-height:auto;padding:30px 0 10px;}
     .m-logo{display:flex;align-items:center;gap:12px;}
     .m-logo-wrap{position:relative;display:inline-flex;width:52px;height:52px;}
-    .m-mark{width:100%;height:100%;}
-    .m-ghost{fill:#f2f4ff;}
-    .m-eye{fill:#08080c;}
-    .m-ring-base{opacity:.28;}
-    /* the arc orbits the ghost: slow while idle, fast while searching */
-    .m-ring-arc{stroke-dasharray:26 144;transform-origin:32px 32px;animation:m-orbit 3.6s linear infinite;}
-    .m-logo-wrap.searching .m-ring-arc{stroke-dasharray:62 108;animation-duration:.8s;}
-    .m-logo-wrap.searching .m-ring-base{opacity:.12;}
+    .m-mark{width:100%;height:100%;border-radius:22%;}
+    /* a light runs along the icon's own ring: slow idle, fast while searching */
+    .m-halo{position:absolute;inset:0;width:100%;height:100%;mix-blend-mode:screen;pointer-events:none;}
+    .m-ring-arc{opacity:.5;stroke-dasharray:110 795;transform-box:view-box;transform-origin:253px 241px;animation:m-orbit 3.6s linear infinite;}
+    .m-logo-wrap.searching .m-ring-arc{opacity:.85;stroke-dasharray:300 605;animation-duration:.8s;}
     .m-home.has .m-logo-wrap{width:34px;height:34px;}
     @keyframes m-orbit{to{transform:rotate(360deg);}}
     .m-logo span{font-size:38px;font-weight:300;letter-spacing:8px;}
