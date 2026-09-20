@@ -190,4 +190,4 @@ A: Yes, but expect Tor-level latency. Some sites may block Tor exit nodes or sho
 
 ## License
 
-MIT
+MIT — spaceman y2k38
