@@ -5,50 +5,51 @@ const splashBar = document.getElementById("splash-bar");
 const splashHash = document.getElementById("splash-hash");
 
 async function boot() {
-  const hash = await window.ghoster.sessionHash();
-  splashHash.textContent = "sha:" + hash.slice(0, 24) + "...";
+  const [hash, torCheck] = await Promise.all([
+    window.ghoster.sessionHash(),
+    window.ghoster.torStatus(),
+  ]);
+  splashHash.textContent = "sha:" + hash.slice(0, 16);
 
-  splashBar.style.width = "20%";
-  splashStatus.textContent = "connecting to tor...";
-
-  const maxAttempts = 20;
-  let connected = false;
-  for (let i = 0; i < maxAttempts; i++) {
-    const s = await window.ghoster.torStatus();
-    splashBar.style.width = Math.min(20 + (i / maxAttempts) * 60, 80) + "%";
-    if (s.connected) { connected = true; break; }
-    await sleep(500);
+  if (torCheck.connected) {
+    // Tor already running — skip splash, go straight in
+    const integrity = await window.ghoster.verifyIntegrity(hash);
+    document.getElementById("splash").classList.add("hidden");
+    document.getElementById("browser").classList.remove("hidden");
+    initBrowser();
+    initTorMonitor();
+    document.getElementById("status-hash").textContent = "sha256:" + integrity.hash.slice(0, 16);
+    return;
   }
 
-  if (!connected) {
-    splashStatus.textContent = "tor offline — start tor first";
-    splashBar.style.width = "100%";
+  // Tor not ready — show minimal splash while waiting
+  splashBar.style.width = "30%";
+  splashStatus.textContent = "waiting for tor...";
+
+  for (let i = 0; i < 15; i++) {
+    const s = await window.ghoster.torStatus();
+    splashBar.style.width = (30 + i * 4.5) + "%";
+    if (s.connected) break;
+    await sleep(400);
+  }
+
+  const finalCheck = await window.ghoster.torStatus();
+  if (!finalCheck.connected) {
+    splashStatus.textContent = "tor offline — run: brew services start tor";
     splashBar.style.background = "var(--red)";
     return;
   }
 
-  splashBar.style.width = "85%";
-  splashStatus.textContent = "hardening session...";
-  await sleep(300);
-
-  splashBar.style.width = "95%";
-  splashStatus.textContent = "verifying integrity...";
-  const integrity = await window.ghoster.verifyIntegrity(hash);
-  await sleep(200);
-
   splashBar.style.width = "100%";
-  splashStatus.textContent = "ready";
   document.getElementById("splash-ring").classList.add("done");
-  await sleep(500);
+  await sleep(150);
 
   document.getElementById("splash").classList.add("hidden");
   document.getElementById("browser").classList.remove("hidden");
-
   initBrowser();
   initTorMonitor();
-
-  document.getElementById("status-hash").textContent =
-    "sha256:" + integrity.hash.slice(0, 16);
+  const integrity = await window.ghoster.verifyIntegrity(hash);
+  document.getElementById("status-hash").textContent = "sha256:" + integrity.hash.slice(0, 16);
 }
 
 function sleep(ms) {

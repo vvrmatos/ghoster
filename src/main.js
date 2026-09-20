@@ -25,6 +25,11 @@ const SESSION_HASH = crypto.randomBytes(32).toString("hex");
 
 // ── CHROMIUM HARDENING ──
 
+app.commandLine.appendSwitch("disable-gpu-sandbox");
+app.commandLine.appendSwitch("disable-software-rasterizer");
+app.commandLine.appendSwitch("disable-dev-shm-usage");
+app.commandLine.appendSwitch("js-flags", "--max-old-space-size=256");
+
 protocol.registerSchemesAsPrivileged([
   { scheme: "ghoster", privileges: { standard: true, secure: true, supportFetchAPI: true } },
 ]);
@@ -69,15 +74,15 @@ function checkTor() {
       resolve(true);
     });
     sock.on("error", () => resolve(false));
-    sock.setTimeout(2000, () => { sock.destroy(); resolve(false); });
+    sock.setTimeout(800, () => { sock.destroy(); resolve(false); });
   });
 }
 
-async function waitForTor(maxWait = 15000) {
+async function waitForTor(maxWait = 5000) {
   const start = Date.now();
   while (Date.now() - start < maxWait) {
     if (await checkTor()) { torReady = true; return true; }
-    await new Promise((r) => setTimeout(r, 500));
+    await new Promise((r) => setTimeout(r, 300));
   }
   return false;
 }
@@ -112,9 +117,10 @@ function hardenSession(ses) {
     callback({ responseHeaders: details.responseHeaders });
   });
 
-  // Block all permission requests
   ses.setPermissionRequestHandler((_wc, _perm, cb) => cb(false));
   ses.setPermissionCheckHandler(() => false);
+
+  ses.enableNetworkEmulation({ offline: false, latency: 0, downloadThroughput: 0, uploadThroughput: 0 });
 }
 
 // ── WINDOW ──
@@ -233,8 +239,10 @@ app.whenReady().then(async () => {
   }
   registerProtocol();
   createWindow();
-  await waitForTor();
-  mainWindow.webContents.send("tor-ready", torReady);
+  // Don't block — let the renderer check Tor status
+  waitForTor().then(() => {
+    if (mainWindow) mainWindow.webContents.send("tor-ready", torReady);
+  });
 });
 
 app.on("window-all-closed", () => app.quit());
