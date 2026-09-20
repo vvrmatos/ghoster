@@ -217,10 +217,10 @@ function cleanUrl(url) {
 
 function updateLock(url) {
   if (!url || url.startsWith("file://") || url.includes("memento.html")) {
-    urlLock.textContent = "👻";
+    urlLock.textContent = "◈";
     return;
   }
-  urlLock.textContent = url.startsWith("https://") ? "🔒" : "⚠️";
+  urlLock.textContent = url.startsWith("https://") ? "▪" : "△";
 }
 
 function escapeHtml(s) {
@@ -245,7 +245,7 @@ document.getElementById("btn-new-tab").addEventListener("click", () => createTab
 // New identity
 document.getElementById("btn-newid").addEventListener("click", async () => {
   const result = await window.ghoster.newIdentity();
-  statusText.textContent = "👻 new identity — " + result.hash.slice(0, 8);
+  statusText.textContent = "◈ new identity — " + result.hash.slice(0, 8);
   const w = getActiveWebview();
   if (w) w.reload();
   setTimeout(() => (statusText.textContent = ""), 3000);
@@ -333,7 +333,7 @@ const jsHint = document.getElementById("js-hint");
 
 async function updateJSUI() {
   const { jsEnabled } = await window.ghoster.getJS();
-  jsToggleBtn.textContent = jsEnabled ? "⚡ javascript: on" : "🚫 javascript: off";
+  jsToggleBtn.textContent = jsEnabled ? "▸ javascript: on" : "▪ javascript: off";
   jsToggleBtn.classList.toggle("active", jsEnabled);
   jsHint.textContent = jsEnabled
     ? "JS on — fingerprints poisoned (canvas, WebGL, audio)"
@@ -349,7 +349,7 @@ async function updateJSUI() {
 jsToggleBtn.addEventListener("click", async () => {
   const { jsEnabled } = await window.ghoster.toggleJS();
   updateJSUI();
-  statusText.textContent = jsEnabled ? "⚡ JS enabled" : "🚫 JS disabled";
+  statusText.textContent = jsEnabled ? "▸ JS enabled" : "▪ JS disabled";
   setTimeout(() => (statusText.textContent = ""), 2000);
   const w = getActiveWebview();
   if (w) w.reload();

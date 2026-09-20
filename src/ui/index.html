@@ -31,14 +31,14 @@
         <button class="tb" id="btn-home" title="Memento home">⌂</button>
       </div>
       <div class="toolbar-url">
-        <span class="url-lock" id="url-lock">🔒</span>
+        <span class="url-lock" id="url-lock">◈</span>
         <input type="text" id="url" class="url-input" placeholder="search or type address" spellcheck="false" autocomplete="off">
       </div>
       <div class="toolbar-actions">
         <button class="tb ghost-btn" id="btn-newid" title="New Identity — wipe everything"><img src="icon.png" class="ghost-icon"></button>
         <button class="tb tor-dot" id="tor-dot" title="Tor status">●</button>
-        <button class="tb" id="btn-country" title="Choose nationality">🌍</button>
-        <button class="tb" id="btn-shield" title="Security info">🛡</button>
+        <button class="tb" id="btn-country" title="Choose nationality">⊕</button>
+        <button class="tb" id="btn-shield" title="Security info">◉</button>
       </div>
     </div>
 
@@ -53,7 +53,7 @@
 
     <!-- Shield panel (security info) -->
     <div id="shield-panel" class="shield-panel hidden">
-      <div class="shield-header">🛡 security</div>
+      <div class="shield-header">◉ security</div>
       <div class="shield-rows">
         <div class="shield-row"><span class="sg">●</span> tor routing: active</div>
         <div class="shield-row"><span class="sg">●</span> webrtc: blocked</div>
@@ -67,19 +67,19 @@
         <div class="shield-row shield-hash" id="shield-hash"></div>
       </div>
       <div class="shield-mode">
-        <button class="mode-btn active" id="mode-phantom">👻 phantom</button>
-        <button class="mode-btn" id="mode-stealth">🥷 stealth</button>
+        <button class="mode-btn active" id="mode-phantom">◈ phantom</button>
+        <button class="mode-btn" id="mode-stealth">▣ stealth</button>
       </div>
       <div class="shield-mode-hint" id="mode-hint">phantom mode — sites see Ghoster on PhantomOS</div>
       <div class="shield-mode" style="margin-top:6px">
-        <button class="mode-btn active" id="btn-js-toggle">⚡ javascript: on</button>
+        <button class="mode-btn active" id="btn-js-toggle">▸ javascript: on</button>
       </div>
       <div class="shield-mode-hint" id="js-hint">JS on — fingerprints poisoned (canvas, WebGL, audio)</div>
     </div>
 
     <!-- Country picker panel -->
     <div id="country-panel" class="country-panel hidden">
-      <div class="country-header">🌍 nationality</div>
+      <div class="country-header">⊕ nationality</div>
       <div class="country-search">
         <input type="text" id="country-search" class="country-search-input" placeholder="search country..." spellcheck="false">
       </div>
