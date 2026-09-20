@@ -6,19 +6,53 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
-    "build": "electron-builder --mac dmg",
-    "build:dir": "electron-builder --mac dir"
+    "build": "npm run build:mac && npm run build:win && npm run build:linux",
+    "build:mac": "electron-builder --mac dmg zip",
+    "build:win": "electron-builder --win nsis portable",
+    "build:linux": "electron-builder --linux AppImage deb tar.gz",
+    "build:all": "electron-builder -mwl",
+    "dist": "npm run build"
   },
-  "author": "vvrmatos",
+  "author": {
+    "name": "vvrmatos",
+    "email": "ghoster@protonmail.com"
+  },
   "license": "MIT",
   "build": {
     "appId": "com.ghoster.browser",
     "productName": "Ghoster",
+    "artifactName": "Ghoster-${version}-${os}-${arch}.${ext}",
     "mac": {
       "category": "public.app-category.utilities",
       "icon": "build/icon.icns",
-      "target": ["dmg"],
+      "target": [
+        { "target": "dmg", "arch": ["arm64", "x64"] },
+        { "target": "zip", "arch": ["arm64", "x64"] }
+      ],
       "darkModeSupport": true
+    },
+    "win": {
+      "icon": "build/icon.ico",
+      "target": [
+        { "target": "nsis", "arch": ["x64"] },
+        { "target": "portable", "arch": ["x64"] }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico",
+      "installerHeaderIcon": "build/icon.ico"
+    },
+    "linux": {
+      "icon": "build/icon-linux.png",
+      "category": "Network;WebBrowser;Security",
+      "target": [
+        { "target": "AppImage", "arch": ["x64"] },
+        { "target": "deb", "arch": ["x64"] },
+        { "target": "tar.gz", "arch": ["x64"] }
+      ]
     },
     "dmg": {
       "title": "Ghoster",
@@ -32,7 +66,6 @@
       "src/**/*",
       "!node_modules/.cache"
     ],
-    "extraResources": [],
     "asar": true
   },
   "devDependencies": {
