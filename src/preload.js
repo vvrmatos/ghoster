@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld("ghoster", {
   toggleJS: () => ipcRenderer.invoke("toggle-js"),
   getJS: () => ipcRenderer.invoke("get-js"),
   onJSToggled: (cb) => ipcRenderer.on("js-toggled", (_e, v) => cb(v)),
+  onReloadTab: (cb) => ipcRenderer.on("reload-tab", () => cb()),
   mementoSearch: (query) => ipcRenderer.invoke("memento-search", query),
   onTorReady: (cb) => ipcRenderer.on("tor-ready", (_e, ok) => cb(ok)),
 });

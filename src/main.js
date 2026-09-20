@@ -151,9 +151,42 @@ function createWindow() {
     },
   });
 
-  Menu.setApplicationMenu(null);
+  // Custom menu to intercept Cmd+R and prevent main window reload
+  const { globalShortcut } = require("electron");
+  Menu.setApplicationMenu(Menu.buildFromTemplate([
+    {
+      label: "Ghoster",
+      submenu: [
+        { role: "quit" },
+      ],
+    },
+    {
+      label: "Edit",
+      submenu: [
+        { role: "undo" }, { role: "redo" }, { type: "separator" },
+        { role: "cut" }, { role: "copy" }, { role: "paste" },
+        { role: "selectAll" },
+      ],
+    },
+  ]));
   hardenSession(session.defaultSession);
   mainWindow.loadFile(path.join(__dirname, "ui", "index.html"));
+
+  // Block Cmd+R / Ctrl+R / F5 from reloading the main window — send to renderer instead
+  mainWindow.webContents.on("before-input-event", (event, input) => {
+    if (
+      (input.key === "r" && (input.meta || input.control)) ||
+      input.key === "F5"
+    ) {
+      event.preventDefault();
+      mainWindow.webContents.send("reload-tab");
+    }
+    // Block Cmd+Shift+R too
+    if (input.key === "R" && input.shift && (input.meta || input.control)) {
+      event.preventDefault();
+      mainWindow.webContents.send("reload-tab");
+    }
+  });
 }
 
 // ── IPC ──
@@ -256,7 +289,7 @@ function registerProtocol() {
 // ── LAUNCH ──
 
 app.whenReady().then(async () => {
-  const { nativeImage } = require("electron");
+  const { nativeImage, globalShortcut } = require("electron");
   const dockIcon = nativeImage.createFromPath(path.join(__dirname, "..", "build", "icon.png"));
   if (process.platform === "darwin" && app.dock) {
     app.dock.setIcon(dockIcon);

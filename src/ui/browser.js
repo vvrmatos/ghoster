@@ -627,4 +627,10 @@ window.ghoster.onTorReady((ok) => {
   }
 });
 
+// Cmd+R reload — goes to active tab, not main window
+window.ghoster.onReloadTab(() => {
+  const w = getActiveWebview();
+  if (w) w.reload();
+});
+
 document.addEventListener("DOMContentLoaded", boot);
