@@ -219,6 +219,39 @@ document.getElementById("btn-shield").addEventListener("click", async () => {
 
     const hash = await window.ghoster.sessionHash();
     document.getElementById("shield-hash").textContent = "session: " + hash.slice(0, 32) + "...";
+    updateModeUI();
+  }
+});
+
+// UA mode toggle
+const modePhantom = document.getElementById("mode-phantom");
+const modeStealth = document.getElementById("mode-stealth");
+const modeHint = document.getElementById("mode-hint");
+
+async function updateModeUI() {
+  const { mode } = await window.ghoster.getUAMode();
+  modePhantom.classList.toggle("active", mode === "phantom");
+  modeStealth.classList.toggle("active", mode === "stealth");
+  modeHint.textContent = mode === "phantom"
+    ? "phantom mode — sites see Ghoster on PhantomOS"
+    : "stealth mode — sites see Firefox on Windows";
+}
+
+modePhantom.addEventListener("click", async () => {
+  await window.ghoster.setUAMode("phantom");
+  updateModeUI();
+  if (viewReady) {
+    view.setUserAgent("Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0");
+    view.reload();
+  }
+});
+
+modeStealth.addEventListener("click", async () => {
+  await window.ghoster.setUAMode("stealth");
+  updateModeUI();
+  if (viewReady) {
+    view.setUserAgent("Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0");
+    view.reload();
   }
 });
 

@@ -291,6 +291,38 @@ body {
   word-break: break-all;
 }
 
+.shield-mode {
+  display: flex;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.mode-btn {
+  flex: 1;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--dim);
+  border-radius: 6px;
+  padding: 6px 8px;
+  font-size: 11px;
+  font-family: inherit;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+
+.mode-btn:hover { border-color: var(--accent); color: var(--text); }
+.mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+.shield-mode-hint {
+  font-size: 9px;
+  color: var(--dim);
+  margin-top: 6px;
+  text-align: center;
+  opacity: 0.7;
+}
+
 /* ── COUNTRY PANEL ── */
 .country-panel {
   position: absolute;

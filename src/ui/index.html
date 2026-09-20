@@ -47,7 +47,7 @@
       <webview id="view"
         partition="persist:ghoster"
         allowpopups
-        useragent="Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0"
+        useragent="Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0"
       ></webview>
     </div>
 
@@ -66,6 +66,11 @@
         <div class="shield-row" id="shield-ip"></div>
         <div class="shield-row shield-hash" id="shield-hash"></div>
       </div>
+      <div class="shield-mode">
+        <button class="mode-btn active" id="mode-phantom">👻 phantom</button>
+        <button class="mode-btn" id="mode-stealth">🥷 stealth</button>
+      </div>
+      <div class="shield-mode-hint" id="mode-hint">phantom mode — sites see Ghoster on PhantomOS</div>
     </div>
 
     <!-- Country picker panel -->

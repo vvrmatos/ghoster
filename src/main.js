@@ -17,8 +17,12 @@ const crypto = require("crypto");
 const TOR_SOCKS = "socks5://127.0.0.1:9050";
 const TOR_HOST = "127.0.0.1";
 const TOR_PORT = 9050;
-const UA =
-  "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0";
+
+const UA_PHANTOM = "Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0";
+const UA_STEALTH = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0";
+let uaMode = "phantom";
+
+function getUA() { return uaMode === "phantom" ? UA_PHANTOM : UA_STEALTH; }
 
 // Session integrity hash — every session gets a unique fingerprint for internal verification
 const SESSION_HASH = crypto.randomBytes(32).toString("hex");
@@ -90,12 +94,11 @@ async function waitForTor(maxWait = 5000) {
 // ── SESSION HARDENING ──
 
 function hardenSession(ses) {
-  ses.setUserAgent(UA);
+  ses.setUserAgent(getUA());
 
-  // Strip all identifying headers
   ses.webRequest.onBeforeSendHeaders((details, callback) => {
     const h = details.requestHeaders;
-    h["User-Agent"] = UA;
+    h["User-Agent"] = getUA();
     const c = COUNTRIES[currentCountry] || COUNTRIES.auto;
     h["Accept-Language"] = c.lang;
 
@@ -174,6 +177,16 @@ ipcMain.handle("session-hash", () => SESSION_HASH);
 ipcMain.handle("verify-integrity", (_e, data) => {
   const hash = crypto.createHash("sha256").update(data).digest("hex");
   return { hash, verified: true };
+});
+
+ipcMain.handle("get-ua-mode", () => {
+  return { mode: uaMode, ua: getUA() };
+});
+
+ipcMain.handle("set-ua-mode", (_e, mode) => {
+  uaMode = mode === "stealth" ? "stealth" : "phantom";
+  session.defaultSession.setUserAgent(getUA());
+  return { mode: uaMode, ua: getUA() };
 });
 
 ipcMain.handle("get-countries", () => {
