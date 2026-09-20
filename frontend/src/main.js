@@ -157,7 +157,7 @@ function mementoHTML() {
   return `
   <div class="m-wrap">
     <div class="m-home" id="m-home">
-      <div class="m-logo"><img src="${iconUrl}"><span>ghoster</span></div>
+      <div class="m-logo"><span class="m-logo-wrap"><span class="m-ring"></span><img src="${iconUrl}"></span><span>ghoster</span></div>
       <div class="m-philo">memento · memoria oblivio</div>
       <div class="m-box"><span class="m-ic">⌕</span><input class="m-input" placeholder="memoria oblivio" spellcheck="false"><button class="m-go">→</button></div>
       <div class="m-tag">trust no one.</div>
@@ -170,7 +170,14 @@ function mementoHTML() {
     .m-home{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:80vh;gap:22px;}
     .m-home.has{min-height:auto;padding:30px 0 10px;}
     .m-logo{display:flex;align-items:center;gap:12px;}
-    .m-logo img{width:40px;height:40px;border-radius:10px;}
+    .m-logo-wrap{position:relative;display:inline-flex;width:40px;height:40px;}
+    .m-logo-wrap img{width:40px;height:40px;border-radius:10px;position:relative;z-index:2;}
+    .m-ring{position:absolute;top:-6px;left:-6px;width:52px;height:52px;border-radius:50%;border:2px solid transparent;z-index:1;opacity:0;transition:opacity .2s;}
+    .m-logo-wrap.searching .m-ring{opacity:1;border-top-color:#00a8ff;border-right-color:#8b7cf6;animation:mspin .9s linear infinite;}
+    .m-home.has .m-logo-wrap{width:26px;height:26px;}
+    .m-home.has .m-logo-wrap img{width:26px;height:26px;}
+    .m-home.has .m-ring{width:36px;height:36px;top:-5px;left:-5px;}
+    @keyframes mspin{to{transform:rotate(360deg);}}
     .m-logo span{font-size:38px;font-weight:300;letter-spacing:8px;}
     .m-philo{font-size:10px;color:#5a5a6e;letter-spacing:4px;text-transform:lowercase;opacity:.6;margin-top:-14px;}
     .m-home.has .m-logo img{width:26px;height:26px;} .m-home.has .m-logo span{font-size:22px;}
@@ -220,6 +227,8 @@ async function doSearch(tab, query) {
   if (!query.trim()) return;
   const root = tab.el;
   root.querySelector(".m-home").classList.add("has");
+  const ring = root.querySelector(".m-logo-wrap");
+  if (ring) ring.classList.add("searching");
   const rc = root.querySelector(".m-results");
   rc.innerHTML = '<div class="m-load">searching…</div>';
   tab.title = query;
@@ -233,11 +242,12 @@ async function doSearch(tab, query) {
 
   // Dark sources (onion + torrent) fill in after
   SearchDark(query).then((dark) => {
+    if (ring) ring.classList.remove("searching");
     if (activeTab() !== tab) { lastData.onion = dark.onion || []; lastData.torrent = dark.torrent || []; return; }
     lastData.onion = dark.onion || [];
     lastData.torrent = dark.torrent || [];
     renderResults(tab, lastData, false);
-  }).catch(() => {});
+  }).catch(() => { if (ring) ring.classList.remove("searching"); });
 }
 
 function renderResults(tab, data, darkPending) {
