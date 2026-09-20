@@ -222,7 +222,7 @@ body {
   color: var(--text);
 }
 
-.tb:active { transform: scale(0.95); }
+.tb:active { transform: scale(0.9); transition: transform 0.05s; }
 
 .ghost-btn { padding: 2px; }
 .ghost-icon { width: 20px; height: 20px; border-radius: 4px; }
@@ -230,6 +230,40 @@ body {
 .tor-dot { font-size: 10px; color: var(--dim); }
 .tor-dot.on { color: var(--green); }
 .tor-dot.off { color: var(--red); }
+
+/* ── LOADING BAR ── */
+.loadbar {
+  height: 2px;
+  background: transparent;
+  position: relative;
+  flex-shrink: 0;
+  z-index: 200;
+}
+
+.loadbar-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, var(--accent), #00a8ff);
+  transition: width 0.2s ease;
+  border-radius: 0 1px 1px 0;
+  box-shadow: 0 0 8px rgba(0, 168, 255, 0.4);
+}
+
+.loadbar-fill.loading {
+  animation: loadPulse 1.5s ease-in-out infinite;
+}
+
+.loadbar-fill.done {
+  width: 100% !important;
+  opacity: 0;
+  transition: width 0.2s ease, opacity 0.4s ease 0.2s;
+}
+
+@keyframes loadPulse {
+  0% { box-shadow: 0 0 4px rgba(0, 168, 255, 0.3); }
+  50% { box-shadow: 0 0 12px rgba(0, 168, 255, 0.7); }
+  100% { box-shadow: 0 0 4px rgba(0, 168, 255, 0.3); }
+}
 
 /* ── TAB BAR ── */
 .tabbar {

@@ -69,6 +69,38 @@ const tabs = [];
 let activeTabId = null;
 let tabCounter = 0;
 
+// ── LOADING BAR ──
+
+const loadbarFill = document.getElementById("loadbar-fill");
+let loadInterval = null;
+let loadProgress = 0;
+
+function startLoadBar() {
+  clearInterval(loadInterval);
+  loadProgress = 5;
+  loadbarFill.className = "loadbar-fill loading";
+  loadbarFill.style.width = loadProgress + "%";
+  loadbarFill.style.opacity = "1";
+  loadInterval = setInterval(() => {
+    if (loadProgress < 90) {
+      loadProgress += (90 - loadProgress) * 0.08;
+      loadbarFill.style.width = loadProgress + "%";
+    }
+  }, 100);
+}
+
+function finishLoadBar() {
+  clearInterval(loadInterval);
+  loadbarFill.style.width = "100%";
+  loadbarFill.className = "loadbar-fill done";
+  setTimeout(() => {
+    loadbarFill.style.width = "0%";
+    loadbarFill.className = "loadbar-fill";
+    loadbarFill.style.opacity = "1";
+    loadProgress = 0;
+  }, 600);
+}
+
 function getMementoPath() {
   const base = window.location.href.replace(/\/[^/]*$/, "");
   return base + "/memento.html";
@@ -92,10 +124,10 @@ function createTab(url) {
   tabs.push(tab);
 
   wv.addEventListener("did-start-loading", () => {
-    if (activeTabId === id) statusText.textContent = "loading...";
+    if (activeTabId === id) { statusText.textContent = "loading..."; startLoadBar(); }
   });
   wv.addEventListener("did-stop-loading", () => {
-    if (activeTabId === id) statusText.textContent = "";
+    if (activeTabId === id) { statusText.textContent = ""; finishLoadBar(); }
   });
   wv.addEventListener("did-navigate", (e) => {
     tab.url = e.url;
