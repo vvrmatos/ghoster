@@ -59,7 +59,7 @@
         <div class="shield-row"><span class="sg">●</span> webrtc: blocked</div>
         <div class="shield-row"><span class="sg">●</span> cookies: blocked</div>
         <div class="shield-row"><span class="sg">●</span> client hints: stripped</div>
-        <div class="shield-row"><span class="sg">●</span> fingerprint: spoofed</div>
+        <div class="shield-row"><span class="sg">●</span> fingerprint: poisoned (canvas, WebGL, audio)</div>
         <div class="shield-row"><span class="sg">●</span> permissions: denied</div>
         <div class="shield-row"><span class="sg">●</span> ipv6: disabled</div>
         <div class="shield-row" id="shield-geo"></div>
@@ -71,6 +71,10 @@
         <button class="mode-btn" id="mode-stealth">🥷 stealth</button>
       </div>
       <div class="shield-mode-hint" id="mode-hint">phantom mode — sites see Ghoster on PhantomOS</div>
+      <div class="shield-mode" style="margin-top:6px">
+        <button class="mode-btn active" id="btn-js-toggle">⚡ javascript: on</button>
+      </div>
+      <div class="shield-mode-hint" id="js-hint">JS on — fingerprints poisoned (canvas, WebGL, audio)</div>
     </div>
 
     <!-- Country picker panel -->

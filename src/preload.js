@@ -10,6 +10,9 @@ contextBridge.exposeInMainWorld("ghoster", {
   getGeo: () => ipcRenderer.invoke("get-geo"),
   getUAMode: () => ipcRenderer.invoke("get-ua-mode"),
   setUAMode: (mode) => ipcRenderer.invoke("set-ua-mode", mode),
+  toggleJS: () => ipcRenderer.invoke("toggle-js"),
+  getJS: () => ipcRenderer.invoke("get-js"),
+  onJSToggled: (cb) => ipcRenderer.on("js-toggled", (_e, v) => cb(v)),
   mementoSearch: (query) => ipcRenderer.invoke("memento-search", query),
   onTorReady: (cb) => ipcRenderer.on("tor-ready", (_e, ok) => cb(ok)),
 });

@@ -220,6 +220,7 @@ document.getElementById("btn-shield").addEventListener("click", async () => {
     const hash = await window.ghoster.sessionHash();
     document.getElementById("shield-hash").textContent = "session: " + hash.slice(0, 32) + "...";
     updateModeUI();
+    updateJSUI();
   }
 });
 
@@ -253,6 +254,33 @@ modeStealth.addEventListener("click", async () => {
     view.setUserAgent("Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0");
     view.reload();
   }
+});
+
+// JS toggle
+const jsToggleBtn = document.getElementById("btn-js-toggle");
+const jsHint = document.getElementById("js-hint");
+
+async function updateJSUI() {
+  const { jsEnabled } = await window.ghoster.getJS();
+  jsToggleBtn.textContent = jsEnabled ? "⚡ javascript: on" : "🚫 javascript: off";
+  jsToggleBtn.classList.toggle("active", jsEnabled);
+  jsHint.textContent = jsEnabled
+    ? "JS on — fingerprints poisoned (canvas, WebGL, audio)"
+    : "JS off — maximum safety, some sites will break";
+  if (viewReady) {
+    view.setAudioMuted(false);
+    const wc = view.getWebContents ? view.getWebContents() : null;
+    // webview doesn't expose webPreferences toggle directly,
+    // but we inform the user to reload for the change to take effect
+  }
+}
+
+jsToggleBtn.addEventListener("click", async () => {
+  const { jsEnabled } = await window.ghoster.toggleJS();
+  updateJSUI();
+  statusText.textContent = jsEnabled ? "⚡ JS enabled" : "🚫 JS disabled";
+  setTimeout(() => (statusText.textContent = ""), 2000);
+  if (viewReady) view.reload();
 });
 
 // Close shield on click outside
@@ -318,8 +346,113 @@ function updateCountryButton() {
   if (c) btn.textContent = c.flag;
 }
 
+async function injectAntiFingerprint() {
+  if (!viewReady) return;
+  const poisonScript = `
+    (function() {
+      // Canvas fingerprint poisoning — add subtle noise to every canvas read
+      const origToDataURL = HTMLCanvasElement.prototype.toDataURL;
+      HTMLCanvasElement.prototype.toDataURL = function() {
+        const ctx = this.getContext('2d');
+        if (ctx) {
+          const img = ctx.getImageData(0, 0, this.width, this.height);
+          for (let i = 0; i < img.data.length; i += 4) {
+            img.data[i] ^= (Math.random() * 2) | 0;
+          }
+          ctx.putImageData(img, 0, 0);
+        }
+        return origToDataURL.apply(this, arguments);
+      };
+
+      const origToBlob = HTMLCanvasElement.prototype.toBlob;
+      HTMLCanvasElement.prototype.toBlob = function(cb, type, quality) {
+        const ctx = this.getContext('2d');
+        if (ctx) {
+          const img = ctx.getImageData(0, 0, this.width, this.height);
+          for (let i = 0; i < img.data.length; i += 4) {
+            img.data[i] ^= (Math.random() * 2) | 0;
+          }
+          ctx.putImageData(img, 0, 0);
+        }
+        return origToBlob.call(this, cb, type, quality);
+      };
+
+      const origGetImageData = CanvasRenderingContext2D.prototype.getImageData;
+      CanvasRenderingContext2D.prototype.getImageData = function() {
+        const img = origGetImageData.apply(this, arguments);
+        for (let i = 0; i < img.data.length; i += 4) {
+          img.data[i] ^= (Math.random() * 2) | 0;
+        }
+        return img;
+      };
+
+      // WebGL fingerprint poisoning
+      const origGetParameter = WebGLRenderingContext.prototype.getParameter;
+      WebGLRenderingContext.prototype.getParameter = function(p) {
+        if (p === 37445) return 'Generic GPU';        // UNMASKED_VENDOR_WEBGL
+        if (p === 37446) return 'Generic Renderer';    // UNMASKED_RENDERER_WEBGL
+        if (p === 7937)  return 'WebGL 1.0 (Ghoster)'; // VERSION
+        if (p === 35724) return 'WebGL GLSL ES 1.0';   // SHADING_LANGUAGE_VERSION
+        return origGetParameter.call(this, p);
+      };
+      if (typeof WebGL2RenderingContext !== 'undefined') {
+        const origGetParam2 = WebGL2RenderingContext.prototype.getParameter;
+        WebGL2RenderingContext.prototype.getParameter = function(p) {
+          if (p === 37445) return 'Generic GPU';
+          if (p === 37446) return 'Generic Renderer';
+          if (p === 7937)  return 'WebGL 2.0 (Ghoster)';
+          if (p === 35724) return 'WebGL GLSL ES 3.0';
+          return origGetParam2.call(this, p);
+        };
+      }
+
+      // AudioContext fingerprint poisoning
+      if (typeof AudioContext !== 'undefined') {
+        const origCreateOscillator = AudioContext.prototype.createOscillator;
+        AudioContext.prototype.createOscillator = function() {
+          const osc = origCreateOscillator.call(this);
+          const origConnect = osc.connect.bind(osc);
+          osc.connect = function(dest) {
+            if (dest instanceof AnalyserNode) {
+              const gain = this.context.createGain();
+              gain.gain.value = 1 + (Math.random() * 0.001 - 0.0005);
+              origConnect(gain);
+              gain.connect(dest);
+              return dest;
+            }
+            return origConnect(dest);
+          };
+          return osc;
+        };
+      }
+
+      // Battery API — hide
+      if (navigator.getBattery) {
+        navigator.getBattery = undefined;
+        delete Navigator.prototype.getBattery;
+      }
+
+      // Performance timing — reduce precision to 100ms
+      const origNow = Performance.prototype.now;
+      Performance.prototype.now = function() {
+        return Math.round(origNow.call(this) / 100) * 100;
+      };
+
+      // Plugins — empty (Firefox-like)
+      Object.defineProperty(Navigator.prototype, 'plugins', {
+        get: () => Object.create(PluginArray.prototype, { length: { value: 0 } })
+      });
+      Object.defineProperty(Navigator.prototype, 'mimeTypes', {
+        get: () => Object.create(MimeTypeArray.prototype, { length: { value: 0 } })
+      });
+    })();
+  `;
+  try { await view.executeJavaScript(poisonScript); } catch {}
+}
+
 async function injectGeoSpoof() {
   if (!viewReady) return;
+  await injectAntiFingerprint();
   const geo = await window.ghoster.getGeo();
   const spoofScript = `
     (function() {

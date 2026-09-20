@@ -21,6 +21,7 @@ const TOR_PORT = 9050;
 const UA_PHANTOM = "Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0";
 const UA_STEALTH = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0";
 let uaMode = "phantom";
+let jsEnabled = true;
 
 function getUA() { return uaMode === "phantom" ? UA_PHANTOM : UA_STEALTH; }
 
@@ -189,6 +190,16 @@ ipcMain.handle("set-ua-mode", (_e, mode) => {
   return { mode: uaMode, ua: getUA() };
 });
 
+ipcMain.handle("toggle-js", () => {
+  jsEnabled = !jsEnabled;
+  if (mainWindow) {
+    mainWindow.webContents.send("js-toggled", jsEnabled);
+  }
+  return { jsEnabled };
+});
+
+ipcMain.handle("get-js", () => ({ jsEnabled }));
+
 ipcMain.handle("get-countries", () => {
   const list = {};
   for (const [code, c] of Object.entries(COUNTRIES)) {
@@ -261,6 +272,19 @@ app.whenReady().then(async () => {
 app.on("window-all-closed", () => app.quit());
 
 app.on("web-contents-created", (_e, contents) => {
+  contents.on("dom-ready", () => {
+    if (!jsEnabled && contents.getType() === "webview") {
+      contents.executeJavaScript(`
+        document.querySelectorAll('script').forEach(s => s.remove());
+        const obs = new MutationObserver(muts => {
+          muts.forEach(m => m.addedNodes.forEach(n => {
+            if (n.tagName === 'SCRIPT') n.remove();
+          }));
+        });
+        obs.observe(document.documentElement, { childList: true, subtree: true });
+      `).catch(() => {});
+    }
+  });
   // Block all navigation to non-http(s) URLs
   contents.on("will-navigate", (event, url) => {
     if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("file://")) {
