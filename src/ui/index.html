@@ -42,14 +42,14 @@
       </div>
     </div>
 
-    <!-- Webview -->
-    <div class="view-container">
-      <webview id="view"
-        partition="persist:ghoster"
-        allowpopups
-        useragent="Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0"
-      ></webview>
+    <!-- Tab bar -->
+    <div class="tabbar" id="tabbar">
+      <div class="tabs" id="tabs"></div>
+      <button class="tab-new" id="btn-new-tab" title="New tab (Cmd+T)">+</button>
     </div>
+
+    <!-- Webviews container -->
+    <div class="view-container" id="view-container"></div>
 
     <!-- Shield panel (security info) -->
     <div id="shield-panel" class="shield-panel hidden">

@@ -56,50 +56,126 @@ function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
-// ── BROWSER ──
+// ── BROWSER + TABS ──
 
-const view = document.getElementById("view");
 const urlInput = document.getElementById("url");
 const urlLock = document.getElementById("url-lock");
 const statusText = document.getElementById("status-text");
+const viewContainer = document.getElementById("view-container");
+const tabsEl = document.getElementById("tabs");
 let viewReady = false;
+
+const tabs = [];
+let activeTabId = null;
+let tabCounter = 0;
 
 function getMementoPath() {
   const base = window.location.href.replace(/\/[^/]*$/, "");
   return base + "/memento.html";
 }
 
-function initBrowser() {
-  view.src = getMementoPath();
+function getUA() {
+  return "Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0";
+}
 
-  view.addEventListener("did-start-loading", () => {
-    statusText.textContent = "loading...";
+function createTab(url) {
+  const id = "tab-" + (++tabCounter);
+  const wv = document.createElement("webview");
+  wv.id = id;
+  wv.setAttribute("partition", "persist:ghoster");
+  wv.setAttribute("allowpopups", "");
+  wv.setAttribute("useragent", getUA());
+  wv.src = url || getMementoPath();
+  viewContainer.appendChild(wv);
+
+  const tab = { id, webview: wv, title: "new tab", url: wv.src };
+  tabs.push(tab);
+
+  wv.addEventListener("did-start-loading", () => {
+    if (activeTabId === id) statusText.textContent = "loading...";
   });
-
-  view.addEventListener("did-stop-loading", () => {
-    statusText.textContent = "";
+  wv.addEventListener("did-stop-loading", () => {
+    if (activeTabId === id) statusText.textContent = "";
   });
-
-  view.addEventListener("did-navigate", (e) => {
-    urlInput.value = e.url;
-    updateLock(e.url);
+  wv.addEventListener("did-navigate", (e) => {
+    tab.url = e.url;
+    if (activeTabId === id) { urlInput.value = e.url; updateLock(e.url); }
   });
-
-  view.addEventListener("did-navigate-in-page", (e) => {
-    if (e.isMainFrame) urlInput.value = e.url;
+  wv.addEventListener("did-navigate-in-page", (e) => {
+    if (e.isMainFrame) { tab.url = e.url; if (activeTabId === id) urlInput.value = e.url; }
   });
-
-  view.addEventListener("page-title-updated", (e) => {
-    document.title = e.title + " — ghoster";
+  wv.addEventListener("page-title-updated", (e) => {
+    tab.title = e.title || "untitled";
+    renderTabs();
+    if (activeTabId === id) document.title = tab.title + " — ghoster";
   });
-
-  view.addEventListener("did-fail-load", (e) => {
+  wv.addEventListener("did-fail-load", (e) => {
     if (e.errorCode === -3) return;
-    statusText.textContent = "failed to load";
+    if (activeTabId === id) statusText.textContent = "failed to load";
   });
+  wv.addEventListener("dom-ready", () => injectGeoSpoof(wv));
 
-  view.addEventListener("dom-ready", () => injectGeoSpoof());
+  switchTab(id);
+  renderTabs();
+  return tab;
+}
 
+function switchTab(id) {
+  activeTabId = id;
+  tabs.forEach((t) => {
+    t.webview.classList.toggle("active-view", t.id === id);
+  });
+  const tab = tabs.find((t) => t.id === id);
+  if (tab) {
+    urlInput.value = tab.url || "";
+    updateLock(tab.url || "");
+    document.title = (tab.title || "ghoster") + " — ghoster";
+  }
+  renderTabs();
+}
+
+function closeTab(id) {
+  const idx = tabs.findIndex((t) => t.id === id);
+  if (idx === -1) return;
+  if (tabs.length === 1) {
+    // Last tab — open a new one first
+    createTab();
+    const oldIdx = tabs.findIndex((t) => t.id === id);
+    tabs[oldIdx].webview.remove();
+    tabs.splice(oldIdx, 1);
+    renderTabs();
+    return;
+  }
+  const wasActive = activeTabId === id;
+  tabs[idx].webview.remove();
+  tabs.splice(idx, 1);
+  if (wasActive) {
+    const newIdx = Math.min(idx, tabs.length - 1);
+    switchTab(tabs[newIdx].id);
+  }
+  renderTabs();
+}
+
+function renderTabs() {
+  tabsEl.innerHTML = "";
+  tabs.forEach((t) => {
+    const el = document.createElement("div");
+    el.className = "tab" + (t.id === activeTabId ? " active" : "");
+    el.innerHTML = `<span class="tab-title">${escapeHtml(t.title)}</span><button class="tab-close">×</button>`;
+    el.querySelector(".tab-title").addEventListener("click", () => switchTab(t.id));
+    el.querySelector(".tab-close").addEventListener("click", (e) => { e.stopPropagation(); closeTab(t.id); });
+    el.addEventListener("click", () => switchTab(t.id));
+    tabsEl.appendChild(el);
+  });
+}
+
+function getActiveWebview() {
+  const tab = tabs.find((t) => t.id === activeTabId);
+  return tab ? tab.webview : null;
+}
+
+function initBrowser() {
+  createTab(getMementoPath());
   viewReady = true;
   initCountryPicker();
 }
@@ -107,72 +183,58 @@ function initBrowser() {
 function navigateTo(input) {
   if (!input) return;
   let url = input.trim();
-
   if (url === "") return;
 
-  // Internal commands
-  if (url === "about:blank") {
-    view.src = "about:blank";
-    return;
-  }
+  const wv = getActiveWebview();
+  if (!wv) return;
+
+  if (url === "about:blank") { wv.src = "about:blank"; return; }
   if (url === "home" || url === "ghoster://home" || url === "memento") {
-    view.src = getMementoPath();
-    urlInput.value = "";
-    return;
+    wv.src = getMementoPath(); urlInput.value = ""; return;
   }
 
   if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("file://")) {
     if (url.includes(".") && !url.includes(" ")) {
       url = "https://" + url;
     } else {
-      // Search via memento
-      const q = encodeURIComponent(url);
-      url = getMementoPath() + "?q=" + q;
+      url = getMementoPath() + "?q=" + encodeURIComponent(url);
     }
   }
 
   urlInput.value = url;
-  view.src = url;
+  wv.src = url;
   updateLock(url);
 }
 
 function updateLock(url) {
-  urlLock.textContent = url.startsWith("https://") ? "🔒" : "⚠️";
+  urlLock.textContent = (url && url.startsWith("https://")) ? "🔒" : "⚠️";
+}
+
+function escapeHtml(s) {
+  return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 
 // URL bar
 urlInput.addEventListener("keydown", (e) => {
-  if (e.key === "Enter") {
-    navigateTo(urlInput.value);
-    urlInput.blur();
-  }
+  if (e.key === "Enter") { navigateTo(urlInput.value); urlInput.blur(); }
 });
-
 urlInput.addEventListener("focus", () => urlInput.select());
 
 // Nav buttons
-document.getElementById("btn-back").addEventListener("click", () => {
-  if (viewReady) view.goBack();
-});
+document.getElementById("btn-back").addEventListener("click", () => { const w = getActiveWebview(); if (w) w.goBack(); });
+document.getElementById("btn-fwd").addEventListener("click", () => { const w = getActiveWebview(); if (w) w.goForward(); });
+document.getElementById("btn-reload").addEventListener("click", () => { const w = getActiveWebview(); if (w) w.reload(); });
+document.getElementById("btn-home").addEventListener("click", () => { const w = getActiveWebview(); if (w) { w.src = getMementoPath(); urlInput.value = ""; } });
 
-document.getElementById("btn-fwd").addEventListener("click", () => {
-  if (viewReady) view.goForward();
-});
-
-document.getElementById("btn-reload").addEventListener("click", () => {
-  if (viewReady) view.reload();
-});
-
-document.getElementById("btn-home").addEventListener("click", () => {
-  view.src = getMementoPath();
-  urlInput.value = "";
-});
+// New tab button
+document.getElementById("btn-new-tab").addEventListener("click", () => createTab());
 
 // New identity
 document.getElementById("btn-newid").addEventListener("click", async () => {
   const result = await window.ghoster.newIdentity();
   statusText.textContent = "👻 new identity — " + result.hash.slice(0, 8);
-  if (viewReady) view.reload();
+  const w = getActiveWebview();
+  if (w) w.reload();
   setTimeout(() => (statusText.textContent = ""), 3000);
 });
 
@@ -241,19 +303,15 @@ async function updateModeUI() {
 modePhantom.addEventListener("click", async () => {
   await window.ghoster.setUAMode("phantom");
   updateModeUI();
-  if (viewReady) {
-    view.setUserAgent("Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0");
-    view.reload();
-  }
+  const w = getActiveWebview();
+  if (w) { w.setUserAgent("Mozilla/5.0 (PhantomOS 1.0; rv:1.0) Ghoster/0.1.0"); w.reload(); }
 });
 
 modeStealth.addEventListener("click", async () => {
   await window.ghoster.setUAMode("stealth");
   updateModeUI();
-  if (viewReady) {
-    view.setUserAgent("Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0");
-    view.reload();
-  }
+  const w = getActiveWebview();
+  if (w) { w.setUserAgent("Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0"); w.reload(); }
 });
 
 // JS toggle
@@ -280,7 +338,8 @@ jsToggleBtn.addEventListener("click", async () => {
   updateJSUI();
   statusText.textContent = jsEnabled ? "⚡ JS enabled" : "🚫 JS disabled";
   setTimeout(() => (statusText.textContent = ""), 2000);
-  if (viewReady) view.reload();
+  const w = getActiveWebview();
+  if (w) w.reload();
 });
 
 // Close shield on click outside
@@ -337,7 +396,8 @@ async function selectCountry(code) {
   await injectGeoSpoof();
   statusText.textContent = `${countriesData[code].flag} ${countriesData[code].name}`;
   setTimeout(() => (statusText.textContent = ""), 3000);
-  if (viewReady) view.reload();
+  const w = getActiveWebview();
+  if (w) w.reload();
 }
 
 function updateCountryButton() {
@@ -346,8 +406,9 @@ function updateCountryButton() {
   if (c) btn.textContent = c.flag;
 }
 
-async function injectAntiFingerprint() {
-  if (!viewReady) return;
+async function injectAntiFingerprint(wv) {
+  if (!wv) wv = getActiveWebview();
+  if (!wv) return;
   const poisonScript = `
     (function() {
       // Canvas fingerprint poisoning — add subtle noise to every canvas read
@@ -447,12 +508,13 @@ async function injectAntiFingerprint() {
       });
     })();
   `;
-  try { await view.executeJavaScript(poisonScript); } catch {}
+  try { await wv.executeJavaScript(poisonScript); } catch {}
 }
 
-async function injectGeoSpoof() {
-  if (!viewReady) return;
-  await injectAntiFingerprint();
+async function injectGeoSpoof(wv) {
+  if (!wv) wv = getActiveWebview();
+  if (!wv) return;
+  await injectAntiFingerprint(wv);
   const geo = await window.ghoster.getGeo();
   const spoofScript = `
     (function() {
@@ -508,7 +570,7 @@ async function injectGeoSpoof() {
   `;
 
   try {
-    await view.executeJavaScript(spoofScript);
+    await wv.executeJavaScript(spoofScript);
   } catch {}
 }
 
@@ -539,6 +601,14 @@ document.addEventListener("click", (e) => {
 // ── KEYBOARD SHORTCUTS ──
 
 document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key === "t") {
+    e.preventDefault();
+    createTab();
+  }
+  if ((e.metaKey || e.ctrlKey) && e.key === "w") {
+    e.preventDefault();
+    if (activeTabId) closeTab(activeTabId);
+  }
   if ((e.metaKey || e.ctrlKey) && e.key === "l") {
     e.preventDefault();
     urlInput.focus();
@@ -550,6 +620,7 @@ document.addEventListener("keydown", (e) => {
   }
   if (e.key === "Escape") {
     shieldPanel.classList.add("hidden");
+    countryPanel.classList.add("hidden");
   }
 });
 
