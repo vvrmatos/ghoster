@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>Ghoster</title>
+    <link rel="stylesheet" href="./src/style.css"/>
+</head>
+<body>
+  <!-- SPLASH -->
+  <div id="splash" class="splash">
+    <div class="splash-logo-wrap">
+      <div class="splash-glow"></div>
+      <div class="splash-ring" id="splash-ring"></div>
+      <img class="splash-logo" id="splash-logo" alt="ghoster">
+    </div>
+    <div class="splash-name">ghoster</div>
+    <div class="splash-status" id="splash-status">connecting to tor...</div>
+    <div class="splash-bar"><div class="splash-bar-fill" id="splash-bar"></div></div>
+    <div class="splash-hash" id="splash-hash"></div>
+  </div>
+
+  <!-- BROWSER -->
+  <div id="browser" class="browser hidden">
+    <div class="toolbar" id="toolbar">
+      <div class="toolbar-nav">
+        <button class="tb" id="btn-back">‹</button>
+        <button class="tb" id="btn-fwd">›</button>
+        <button class="tb" id="btn-reload">↻</button>
+        <button class="tb" id="btn-home">⌂</button>
+      </div>
+      <div class="toolbar-url">
+        <span class="url-lock" id="url-lock">◈</span>
+        <input type="text" id="url" class="url-input" placeholder="search or type address" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="toolbar-actions">
+        <button class="tb" id="btn-newid" title="New identity"><img class="ghost-icon" id="ghost-icon"></button>
+        <button class="tb tor-dot" id="tor-dot">●</button>
+        <button class="tb" id="btn-country">⊕</button>
+        <button class="tb" id="btn-shield">◉</button>
+      </div>
+    </div>
+
+    <div class="loadbar" id="loadbar"><div class="loadbar-fill" id="loadbar-fill"></div></div>
+
+    <div class="tabbar" id="tabbar">
+      <div class="tabs" id="tabs"></div>
+      <button class="tab-new" id="btn-new-tab">+</button>
+    </div>
+
+    <div class="view-container" id="view-container"></div>
+
+    <div id="shield-panel" class="panel hidden">
+      <div class="panel-header">◉ security</div>
+      <div class="shield-rows">
+        <div class="shield-row"><span class="sg">●</span> tor routing: <span id="s-tor">checking</span></div>
+        <div class="shield-row"><span class="sg">●</span> header stripping: active (go proxy)</div>
+        <div class="shield-row"><span class="sg">●</span> webrtc: blocked</div>
+        <div class="shield-row"><span class="sg">●</span> client hints: stripped</div>
+        <div class="shield-row"><span class="sg">●</span> fingerprint: poisoned</div>
+        <div class="shield-row"><span class="sg">●</span> cookies: blocked</div>
+        <div class="shield-row"><span class="sg">●</span> engine: webkit · core: go</div>
+        <div class="shield-row" id="shield-ip"></div>
+        <div class="shield-row shield-hash" id="shield-hash"></div>
+      </div>
+      <div class="mode-row">
+        <button class="mode-btn active" id="mode-phantom">◈ phantom</button>
+        <button class="mode-btn" id="mode-stealth">▣ stealth</button>
+      </div>
+      <div class="mode-hint" id="mode-hint">phantom — sites see Ghoster on PhantomOS</div>
+    </div>
+
+    <div id="country-panel" class="panel hidden">
+      <div class="panel-header">⊕ nationality</div>
+      <input type="text" id="country-search" class="country-search-input" placeholder="search country..." spellcheck="false">
+      <div class="country-list" id="country-list"></div>
+    </div>
+
+    <div class="statusbar">
+      <span id="status-text"></span>
+      <span id="status-hash"></span>
+    </div>
+  </div>
+
+  <script type="module" src="./src/main.js"></script>
+</body>
+</html>
