@@ -342,14 +342,14 @@ jsToggleBtn.addEventListener("click", async () => {
   if (w) w.reload();
 });
 
-// Close shield on click outside
+// Close all panels on any click outside
 document.addEventListener("click", (e) => {
-  if (
-    !shieldPanel.contains(e.target) &&
-    e.target.id !== "btn-shield" &&
-    !shieldPanel.classList.contains("hidden")
-  ) {
+  const target = e.target;
+  if (!shieldPanel.contains(target) && target.id !== "btn-shield" && !target.closest("#btn-shield")) {
     shieldPanel.classList.add("hidden");
+  }
+  if (!countryPanel.contains(target) && target.id !== "btn-country" && !target.closest("#btn-country")) {
+    countryPanel.classList.add("hidden");
   }
 });
 
@@ -588,15 +588,7 @@ countrySearch.addEventListener("input", () => {
   renderCountries(countrySearch.value);
 });
 
-document.addEventListener("click", (e) => {
-  if (
-    !countryPanel.contains(e.target) &&
-    e.target.id !== "btn-country" &&
-    !countryPanel.classList.contains("hidden")
-  ) {
-    countryPanel.classList.add("hidden");
-  }
-});
+// (click-outside handled by unified handler above)
 
 // ── KEYBOARD SHORTCUTS ──
 
