@@ -87,11 +87,14 @@ function initBrowser() {
   });
 
   view.addEventListener("did-fail-load", (e) => {
-    if (e.errorCode === -3) return; // aborted, ignore
+    if (e.errorCode === -3) return;
     statusText.textContent = "failed to load";
   });
 
+  view.addEventListener("dom-ready", () => injectGeoSpoof());
+
   viewReady = true;
+  initCountryPicker();
 }
 
 function navigateTo(input) {
@@ -190,6 +193,11 @@ document.getElementById("btn-shield").addEventListener("click", async () => {
       ipEl.innerHTML = '<span class="sr">●</span> exit ip: unknown';
     }
 
+    const geo = await window.ghoster.getGeo();
+    const cData = countriesData[activeCountry];
+    document.getElementById("shield-geo").innerHTML =
+      `<span class="sg">●</span> geo: ${cData ? cData.flag + " " + cData.name : "auto"} (${geo.lat.toFixed(2)}, ${geo.lng.toFixed(2)})`;
+
     const hash = await window.ghoster.sessionHash();
     document.getElementById("shield-hash").textContent = "session: " + hash.slice(0, 32) + "...";
   }
@@ -203,6 +211,143 @@ document.addEventListener("click", (e) => {
     !shieldPanel.classList.contains("hidden")
   ) {
     shieldPanel.classList.add("hidden");
+  }
+});
+
+// ── COUNTRY / NATIONALITY PICKER ──
+
+const countryPanel = document.getElementById("country-panel");
+const countryList = document.getElementById("country-list");
+const countrySearch = document.getElementById("country-search");
+let countriesData = {};
+let activeCountry = "auto";
+
+async function initCountryPicker() {
+  const { countries, current } = await window.ghoster.getCountries();
+  countriesData = countries;
+  activeCountry = current;
+  renderCountries();
+  updateCountryButton();
+  injectGeoSpoof();
+}
+
+function renderCountries(filter = "") {
+  countryList.innerHTML = "";
+  for (const [code, c] of Object.entries(countriesData)) {
+    if (filter && !c.name.toLowerCase().includes(filter.toLowerCase())) continue;
+    const div = document.createElement("div");
+    div.className = "country-item" + (code === activeCountry ? " active" : "");
+    div.innerHTML = `
+      <span class="country-flag">${c.flag}</span>
+      <span class="country-name">${c.name}</span>
+      <span class="country-check">✓</span>
+    `;
+    div.addEventListener("click", () => selectCountry(code));
+    countryList.appendChild(div);
+  }
+}
+
+async function selectCountry(code) {
+  const result = await window.ghoster.setCountry(code);
+  if (!result.ok) return;
+  activeCountry = code;
+  renderCountries(countrySearch.value);
+  updateCountryButton();
+  countryPanel.classList.add("hidden");
+  await injectGeoSpoof();
+  statusText.textContent = `${countriesData[code].flag} ${countriesData[code].name}`;
+  setTimeout(() => (statusText.textContent = ""), 3000);
+  if (viewReady) view.reload();
+}
+
+function updateCountryButton() {
+  const btn = document.getElementById("btn-country");
+  const c = countriesData[activeCountry];
+  if (c) btn.textContent = c.flag;
+}
+
+async function injectGeoSpoof() {
+  if (!viewReady) return;
+  const geo = await window.ghoster.getGeo();
+  const spoofScript = `
+    (function() {
+      const _lat = ${geo.lat};
+      const _lng = ${geo.lng};
+      const _tz = "${geo.tz}";
+
+      // Override Geolocation API
+      if (navigator.geolocation) {
+        const fakePos = {
+          coords: {
+            latitude: _lat,
+            longitude: _lng,
+            accuracy: 50 + Math.random() * 50,
+            altitude: null,
+            altitudeAccuracy: null,
+            heading: null,
+            speed: null,
+          },
+          timestamp: Date.now(),
+        };
+        navigator.geolocation.getCurrentPosition = function(s, e, o) {
+          setTimeout(() => s(fakePos), 100 + Math.random() * 200);
+        };
+        navigator.geolocation.watchPosition = function(s, e, o) {
+          setTimeout(() => s(fakePos), 100 + Math.random() * 200);
+          return Math.floor(Math.random() * 1000);
+        };
+        navigator.geolocation.clearWatch = function() {};
+      }
+
+      // Override timezone
+      const _origDTF = Intl.DateTimeFormat;
+      Intl.DateTimeFormat = function(...args) {
+        if (!args[1]) args[1] = {};
+        if (!args[1].timeZone) args[1].timeZone = _tz;
+        return new _origDTF(...args);
+      };
+      Object.setPrototypeOf(Intl.DateTimeFormat, _origDTF);
+      Object.setPrototypeOf(Intl.DateTimeFormat.prototype, _origDTF.prototype);
+
+      const _origRO = _origDTF.prototype.resolvedOptions;
+      Intl.DateTimeFormat.prototype.resolvedOptions = function() {
+        const opts = _origRO.call(this);
+        opts.timeZone = _tz;
+        return opts;
+      };
+
+      // Override navigator.language
+      Object.defineProperty(Navigator.prototype, 'language', { get: () => "${geo.locale}" });
+      Object.defineProperty(Navigator.prototype, 'languages', { get: () => Object.freeze(["${geo.locale}"]) });
+    })();
+  `;
+
+  try {
+    await view.executeJavaScript(spoofScript);
+  } catch {}
+}
+
+document.getElementById("btn-country").addEventListener("click", () => {
+  countryPanel.classList.toggle("hidden");
+  shieldPanel.classList.add("hidden");
+  if (!countryPanel.classList.contains("hidden")) {
+    countrySearch.value = "";
+    countrySearch.focus();
+    renderCountries();
+  }
+});
+
+countrySearch.addEventListener("input", () => {
+  renderCountries(countrySearch.value);
+});
+
+document.addEventListener("click", (e) => {
+  if (
+    !countryPanel.contains(e.target) &&
+    e.target.id !== "btn-country" &&
+    !countryPanel.classList.contains("hidden")
+  ) {
+    countryPanel.classList.add("hidden");
   }
 });
 

@@ -32,6 +32,7 @@
       <div class="toolbar-actions">
         <button class="tb ghost-btn" id="btn-newid" title="New Identity — wipe everything"><img src="icon.png" class="ghost-icon"></button>
         <button class="tb tor-dot" id="tor-dot" title="Tor status">●</button>
+        <button class="tb" id="btn-country" title="Choose nationality">🌍</button>
         <button class="tb" id="btn-shield" title="Security info">🛡</button>
       </div>
     </div>
@@ -56,14 +57,28 @@
         <div class="shield-row"><span class="sg">●</span> fingerprint: spoofed</div>
         <div class="shield-row"><span class="sg">●</span> permissions: denied</div>
         <div class="shield-row"><span class="sg">●</span> ipv6: disabled</div>
+        <div class="shield-row" id="shield-geo"></div>
         <div class="shield-row" id="shield-ip"></div>
         <div class="shield-row shield-hash" id="shield-hash"></div>
+      </div>
+    </div>
+
+    <!-- Country picker panel -->
+    <div id="country-panel" class="country-panel hidden">
+      <div class="country-header">🌍 nationality</div>
+      <div class="country-search">
+        <input type="text" id="country-search" class="country-search-input" placeholder="search country..." spellcheck="false">
+      </div>
+      <div class="country-list" id="country-list"></div>
+      <div class="country-footer">
+        <span class="dim">changes language, timezone, geolocation</span>
       </div>
     </div>
 
     <!-- Status bar -->
     <div class="statusbar" id="statusbar">
       <span id="status-text"></span>
+      <span id="status-country"></span>
       <span id="status-hash"></span>
     </div>
   </div>

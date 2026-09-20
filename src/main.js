@@ -48,8 +48,11 @@ app.commandLine.appendSwitch("disable-component-update");
 app.commandLine.appendSwitch("disable-domain-reliability");
 app.commandLine.appendSwitch("disable-breakpad");
 
+const COUNTRIES = require("./countries");
+
 let mainWindow;
 let torReady = false;
+let currentCountry = "auto";
 
 // ── TOR CHECK ──
 
@@ -82,7 +85,8 @@ function hardenSession(ses) {
   ses.webRequest.onBeforeSendHeaders((details, callback) => {
     const h = details.requestHeaders;
     h["User-Agent"] = UA;
-    h["Accept-Language"] = "en-US,en;q=0.5";
+    const c = COUNTRIES[currentCountry] || COUNTRIES.auto;
+    h["Accept-Language"] = c.lang;
 
     const strip = [
       "Sec-CH-UA", "Sec-CH-UA-Platform", "Sec-CH-UA-Mobile",
@@ -158,6 +162,31 @@ ipcMain.handle("session-hash", () => SESSION_HASH);
 ipcMain.handle("verify-integrity", (_e, data) => {
   const hash = crypto.createHash("sha256").update(data).digest("hex");
   return { hash, verified: true };
+});
+
+ipcMain.handle("get-countries", () => {
+  const list = {};
+  for (const [code, c] of Object.entries(COUNTRIES)) {
+    list[code] = { name: c.name, flag: c.flag };
+  }
+  return { countries: list, current: currentCountry };
+});
+
+ipcMain.handle("set-country", (_e, code) => {
+  if (!COUNTRIES[code]) return { ok: false };
+  currentCountry = code;
+  const c = COUNTRIES[code];
+  return { ok: true, country: c };
+});
+
+ipcMain.handle("get-geo", () => {
+  let c = COUNTRIES[currentCountry];
+  if (currentCountry === "auto") {
+    const keys = Object.keys(COUNTRIES).filter((k) => k !== "auto");
+    const pick = keys[Math.floor(Math.random() * keys.length)];
+    c = COUNTRIES[pick];
+  }
+  return { lat: c.lat, lng: c.lng, tz: c.tz, locale: c.locale, lang: c.lang };
 });
 
 // ── LAUNCH ──

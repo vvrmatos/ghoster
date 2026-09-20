@@ -5,5 +5,8 @@ contextBridge.exposeInMainWorld("ghoster", {
   newIdentity: () => ipcRenderer.invoke("new-identity"),
   sessionHash: () => ipcRenderer.invoke("session-hash"),
   verifyIntegrity: (data) => ipcRenderer.invoke("verify-integrity", data),
+  getCountries: () => ipcRenderer.invoke("get-countries"),
+  setCountry: (code) => ipcRenderer.invoke("set-country", code),
+  getGeo: () => ipcRenderer.invoke("get-geo"),
   onTorReady: (cb) => ipcRenderer.on("tor-ready", (_e, ok) => cb(ok)),
 });
