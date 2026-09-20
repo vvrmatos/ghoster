@@ -1,0 +1,18 @@
+{
+  "name": "ghoster",
+  "version": "0.1.0",
+  "description": "Anonymous browser. Tor built-in. No traces.",
+  "main": "src/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev"
+  },
+  "author": "vvrmatos",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^36.3.2"
+  },
+  "dependencies": {
+    "socks-proxy-agent": "^8.0.5"
+  }
+}

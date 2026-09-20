@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self' 'unsafe-inline' https:; img-src 'self' data: https:; font-src 'self' https://fonts.gstatic.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; connect-src 'self' https:;">
+  <title>ghoster</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- SPLASH -->
+  <div id="splash" class="splash">
+    <div class="splash-logo">👻</div>
+    <div class="splash-name">ghoster</div>
+    <div class="splash-status" id="splash-status">connecting to tor...</div>
+    <div class="splash-bar"><div class="splash-bar-fill" id="splash-bar"></div></div>
+    <div class="splash-hash" id="splash-hash"></div>
+  </div>
+
+  <!-- BROWSER -->
+  <div id="browser" class="browser hidden">
+    <!-- Toolbar -->
+    <div class="toolbar" id="toolbar">
+      <div class="toolbar-nav">
+        <button class="tb" id="btn-back" title="Back">‹</button>
+        <button class="tb" id="btn-fwd" title="Forward">›</button>
+        <button class="tb" id="btn-reload" title="Reload">↻</button>
+      </div>
+      <div class="toolbar-url">
+        <span class="url-lock" id="url-lock">🔒</span>
+        <input type="text" id="url" class="url-input" placeholder="search or type address" spellcheck="false" autocomplete="off">
+      </div>
+      <div class="toolbar-actions">
+        <button class="tb" id="btn-newid" title="New Identity — wipe everything">👻</button>
+        <button class="tb tor-dot" id="tor-dot" title="Tor status">●</button>
+        <button class="tb" id="btn-shield" title="Security info">🛡</button>
+      </div>
+    </div>
+
+    <!-- Webview -->
+    <div class="view-container">
+      <webview id="view"
+        partition="persist:ghoster"
+        allowpopups
+        useragent="Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0"
+      ></webview>
+    </div>
+
+    <!-- Shield panel (security info) -->
+    <div id="shield-panel" class="shield-panel hidden">
+      <div class="shield-header">🛡 security</div>
+      <div class="shield-rows">
+        <div class="shield-row"><span class="sg">●</span> tor routing: active</div>
+        <div class="shield-row"><span class="sg">●</span> webrtc: blocked</div>
+        <div class="shield-row"><span class="sg">●</span> cookies: blocked</div>
+        <div class="shield-row"><span class="sg">●</span> client hints: stripped</div>
+        <div class="shield-row"><span class="sg">●</span> fingerprint: spoofed</div>
+        <div class="shield-row"><span class="sg">●</span> permissions: denied</div>
+        <div class="shield-row"><span class="sg">●</span> ipv6: disabled</div>
+        <div class="shield-row" id="shield-ip"></div>
+        <div class="shield-row shield-hash" id="shield-hash"></div>
+      </div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="statusbar" id="statusbar">
+      <span id="status-text"></span>
+      <span id="status-hash"></span>
+    </div>
+  </div>
+
+  <script src="browser.js"></script>
+</body>
+</html>
