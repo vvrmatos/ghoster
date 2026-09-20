@@ -153,11 +153,31 @@ function loadMemento(t) {
 }
 
 // ── MEMENTO (native, in-app) ──
+
+// ghostMark draws the logo as SVG so the ring is a live element: an arc orbits
+// the ghost on its own, independent of the icon artwork.
+let markSeq = 0;
+function ghostMark() {
+  const g = "gm" + ++markSeq;
+  return `<svg class="m-mark" viewBox="0 0 64 64" aria-hidden="true">
+    <defs><linearGradient id="${g}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#00c2ff"/><stop offset="1" stop-color="#0060ff"/>
+    </linearGradient></defs>
+    <circle class="m-ring-base" cx="32" cy="32" r="27" fill="none" stroke="url(#${g})" stroke-width="4"/>
+    <circle class="m-ring-arc" cx="32" cy="32" r="27" fill="none" stroke="url(#${g})" stroke-width="4" stroke-linecap="round"/>
+    <g transform="translate(32 32) scale(1.22) translate(-32 -32)">
+      <path class="m-ghost" d="M32 17c-7.2 0-13 5.8-13 13v13.5c0 2 2.3 3 3.7 1.7l2.4-2.2c1-.9 2.5-.9 3.5 0l1.6 1.5c1 .9 2.5.9 3.5 0l1.6-1.5c1-.9 2.5-.9 3.5 0l2.4 2.2c1.4 1.3 3.7.3 3.7-1.7V30c0-7.2-5.8-13-13-13z"/>
+      <ellipse class="m-eye" cx="27.6" cy="29.5" rx="2" ry="2.8"/>
+      <ellipse class="m-eye" cx="36.4" cy="29.5" rx="2" ry="2.8"/>
+    </g>
+  </svg>`;
+}
+
 function mementoHTML() {
   return `
   <div class="m-wrap">
     <div class="m-home" id="m-home">
-      <div class="m-logo"><span class="m-logo-wrap"><span class="m-ring"></span><img src="${iconUrl}"></span><span>ghoster</span></div>
+      <div class="m-logo"><span class="m-logo-wrap">${ghostMark()}</span><span>ghoster</span></div>
       <div class="m-philo">memento</div>
       <div class="m-box"><span class="m-ic">⌕</span><input class="m-input" placeholder="memoria oblivio" spellcheck="false"><button class="m-go">→</button></div>
       <div class="m-tag">trust no one.</div>
@@ -170,17 +190,20 @@ function mementoHTML() {
     .m-home{display:flex;flex-direction:column;align-items:center;justify-content:center;min-height:80vh;gap:22px;}
     .m-home.has{min-height:auto;padding:30px 0 10px;}
     .m-logo{display:flex;align-items:center;gap:12px;}
-    .m-logo-wrap{position:relative;display:inline-flex;width:40px;height:40px;}
-    .m-logo-wrap img{width:40px;height:40px;border-radius:10px;position:relative;z-index:2;}
-    .m-ring{position:absolute;top:-6px;left:-6px;width:52px;height:52px;border-radius:50%;border:2px solid transparent;z-index:1;opacity:0;transition:opacity .2s;}
-    .m-logo-wrap.searching .m-ring{opacity:1;border-top-color:#00a8ff;border-right-color:#8b7cf6;animation:mspin .9s linear infinite;}
-    .m-home.has .m-logo-wrap{width:26px;height:26px;}
-    .m-home.has .m-logo-wrap img{width:26px;height:26px;}
-    .m-home.has .m-ring{width:36px;height:36px;top:-5px;left:-5px;}
-    @keyframes mspin{to{transform:rotate(360deg);}}
+    .m-logo-wrap{position:relative;display:inline-flex;width:52px;height:52px;}
+    .m-mark{width:100%;height:100%;}
+    .m-ghost{fill:#f2f4ff;}
+    .m-eye{fill:#08080c;}
+    .m-ring-base{opacity:.28;}
+    /* the arc orbits the ghost: slow while idle, fast while searching */
+    .m-ring-arc{stroke-dasharray:26 144;transform-origin:32px 32px;animation:m-orbit 3.6s linear infinite;}
+    .m-logo-wrap.searching .m-ring-arc{stroke-dasharray:62 108;animation-duration:.8s;}
+    .m-logo-wrap.searching .m-ring-base{opacity:.12;}
+    .m-home.has .m-logo-wrap{width:34px;height:34px;}
+    @keyframes m-orbit{to{transform:rotate(360deg);}}
     .m-logo span{font-size:38px;font-weight:300;letter-spacing:8px;}
     .m-philo{font-size:11px;color:#5a5a6e;letter-spacing:6px;text-transform:lowercase;opacity:.6;margin-top:-14px;text-align:center;width:100%;}
-    .m-home.has .m-logo img{width:26px;height:26px;} .m-home.has .m-logo span{font-size:22px;}
+    .m-home.has .m-logo span{font-size:22px;}
     .m-home.has .m-philo{display:none;}
     .m-box{width:90%;max-width:620px;display:flex;align-items:center;background:#0e0e14;border:1px solid #252535;border-radius:24px;padding:0 18px;height:48px;}
     .m-box:focus-within{border-color:#8b7cf6;}
