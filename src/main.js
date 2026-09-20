@@ -253,13 +253,24 @@ ipcMain.handle("memento-search", async (_e, query) => {
 });
 
 ipcMain.handle("get-geo", () => {
-  let c = COUNTRIES[currentCountry];
+  const keys = Object.keys(COUNTRIES).filter((k) => k !== "auto");
+  let c;
   if (currentCountry === "auto") {
-    const keys = Object.keys(COUNTRIES).filter((k) => k !== "auto");
-    const pick = keys[Math.floor(Math.random() * keys.length)];
-    c = COUNTRIES[pick];
+    c = COUNTRIES[keys[Math.floor(Math.random() * keys.length)]];
+  } else {
+    c = COUNTRIES[currentCountry];
   }
-  return { lat: c.lat, lng: c.lng, tz: c.tz, locale: c.locale, lang: c.lang };
+  // Randomize coordinates within ~30km radius every call
+  const jitterLat = (Math.random() - 0.5) * 0.5;
+  const jitterLng = (Math.random() - 0.5) * 0.5;
+  return {
+    lat: c.lat + jitterLat,
+    lng: c.lng + jitterLng,
+    tz: c.tz,
+    locale: c.locale,
+    lang: c.lang,
+    country: c.name,
+  };
 });
 
 // ── CUSTOM PROTOCOL ──

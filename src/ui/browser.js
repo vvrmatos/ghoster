@@ -114,6 +114,8 @@ function createTab(url) {
     if (activeTabId === id) statusText.textContent = "failed to load";
   });
   wv.addEventListener("dom-ready", () => injectGeoSpoof(wv));
+  wv.addEventListener("did-navigate", () => injectGeoSpoof(wv));
+  wv.addEventListener("did-navigate-in-page", () => injectGeoSpoof(wv));
 
   switchTab(id);
   renderTabs();
