@@ -50,11 +50,12 @@
     }
 
     .logo-ghost {
-      font-size: 36px;
-      filter: grayscale(0.3);
+      width: 42px;
+      height: 42px;
+      border-radius: 10px;
     }
 
-    .home.has-results .logo-ghost { font-size: 24px; }
+    .home.has-results .logo-ghost { width: 28px; height: 28px; border-radius: 7px; }
 
     .logo-text {
       font-size: 42px;
@@ -234,7 +235,7 @@
 <body>
   <div class="home" id="home">
     <div class="logo">
-      <span class="logo-ghost">👻</span>
+      <img class="logo-ghost" src="icon.png" alt="ghoster">
       <span class="logo-text">memento</span>
     </div>
 
@@ -307,7 +308,7 @@
     function renderResults(data) {
       if (!data.ok || data.results.length === 0) {
         resultsContainer.innerHTML =
-          '<div class="no-results"><div class="no-results-icon">👻</div><div class="no-results-text">nothing found — even ghosts have limits</div></div>';
+          '<div class="no-results"><div class="no-results-icon"><img src="icon.png" style="width:48px;height:48px;border-radius:10px;opacity:0.5"></div><div class="no-results-text">nothing found — even ghosts have limits</div></div>';
         return;
       }
 
