@@ -38,7 +38,8 @@ async function boot() {
 
   splashBar.style.width = "100%";
   splashStatus.textContent = "ready";
-  await sleep(400);
+  document.getElementById("splash-ring").classList.add("done");
+  await sleep(500);
 
   document.getElementById("splash").classList.add("hidden");
   document.getElementById("browser").classList.remove("hidden");

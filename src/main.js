@@ -128,7 +128,7 @@ function createWindow() {
     frame: false,
     titleBarStyle: "hidden",
     trafficLightPosition: { x: -100, y: -100 },
-    icon: path.join(__dirname, "ui", "icon.png"),
+    icon: path.join(__dirname, "..", "build", "icon.icns"),
     backgroundColor: "#08080c",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -226,6 +226,11 @@ function registerProtocol() {
 // ── LAUNCH ──
 
 app.whenReady().then(async () => {
+  const { nativeImage } = require("electron");
+  const dockIcon = nativeImage.createFromPath(path.join(__dirname, "..", "build", "icon.png"));
+  if (process.platform === "darwin" && app.dock) {
+    app.dock.setIcon(dockIcon);
+  }
   registerProtocol();
   createWindow();
   await waitForTor();
