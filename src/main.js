@@ -118,6 +118,7 @@ function createWindow() {
     frame: false,
     titleBarStyle: "hidden",
     trafficLightPosition: { x: -100, y: -100 },
+    icon: path.join(__dirname, "ui", "icon.png"),
     backgroundColor: "#08080c",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
