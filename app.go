@@ -125,6 +125,11 @@ func (a *App) SearchWeb(query string) search.Results {
 	return search.SearchWeb(query)
 }
 
+// SearchMore returns the deep pages of the clearnet engines.
+func (a *App) SearchMore(query string) search.Results {
+	return search.SearchMore(query)
+}
+
 // SearchDark returns onion + torrent results (fetched after web).
 func (a *App) SearchDark(query string) search.Results {
 	return search.SearchDark(query)

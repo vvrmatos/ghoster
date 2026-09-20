@@ -17,6 +17,7 @@ func TestParsers(t *testing.T) {
 		{"marginalia.html", parseMarginalia, 15},
 		{"btdigg.html", parseBTDigg, 5},
 		{"tordex.html", parseTordex, 10},
+		{"bing.html", parseBing, 8},
 		{"ddg.html", func(h string) []Result { return parseDDGPage(h, map[string]bool{}) }, 8},
 	}
 	for _, c := range cases {

@@ -12,7 +12,7 @@ func TestLive(t *testing.T) {
 	if os.Getenv("GHOSTER_LIVE") == "" {
 		t.Skip("set GHOSTER_LIVE=1 to query the real engines over Tor")
 	}
-	for _, q := range []string{"linux", "tor browser", "gabriel garcia marquez"} {
+	for _, q := range []string{"hey there", "linux", "gabriel garcia marquez"} {
 		start := time.Now()
 		web := SearchWeb(q)
 		t.Logf("q=%q web=%d in %s", q, len(web.Web), time.Since(start).Round(time.Millisecond))

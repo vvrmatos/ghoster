@@ -2,7 +2,7 @@ import "./style.css";
 import iconUrl from "./assets/images/icon.png";
 import {
   TorStatus, SessionHash, VerifyIntegrity, SetMode, NewIdentity,
-  Countries, SetCountry, GetGeo, SearchWeb, SearchDark,
+  Countries, SetCountry, GetGeo, SearchWeb, SearchMore, SearchDark,
 } from "../wailsjs/go/main/App";
 
 const PROXY = "http://127.0.0.1:8888";
@@ -246,20 +246,38 @@ async function doSearch(tab, query) {
   tab.title = query;
   renderTabs();
 
-  // Web results first — fast render
+  // Fast engines first, then the deep pages and the dark sources stream in.
   const web = await SearchWeb(query);
   lastData = { web: web.web || [], onion: [], torrent: [], query };
   curFilter = "all";
   renderResults(tab, lastData, true);
 
-  // Dark sources (onion + torrent) fill in after
+  let pending = 2;
+  const done = () => { if (--pending === 0 && ring) ring.classList.remove("searching"); };
+
+  SearchMore(query).then((more) => {
+    lastData.web = mergeResults(lastData.web, more.web || []);
+    if (activeTab() === tab) renderResults(tab, lastData, pending > 1);
+  }).catch(() => {}).finally(done);
+
   SearchDark(query).then((dark) => {
-    if (ring) ring.classList.remove("searching");
-    if (activeTab() !== tab) { lastData.onion = dark.onion || []; lastData.torrent = dark.torrent || []; return; }
     lastData.onion = dark.onion || [];
     lastData.torrent = dark.torrent || [];
-    renderResults(tab, lastData, false);
-  }).catch(() => { if (ring) ring.classList.remove("searching"); });
+    if (activeTab() === tab) renderResults(tab, lastData, pending > 1);
+  }).catch(() => {}).finally(done);
+}
+
+// mergeResults appends new hits, skipping URLs already on screen.
+function mergeResults(current, extra) {
+  const key = (u) => (u || "").replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "");
+  const seen = new Set(current.map((r) => key(r.url)));
+  for (const r of extra) {
+    const k = key(r.url);
+    if (seen.has(k)) continue;
+    seen.add(k);
+    current.push(r);
+  }
+  return current;
 }
 
 function renderResults(tab, data, darkPending) {
@@ -271,7 +289,7 @@ function renderResults(tab, data, darkPending) {
   let list = curFilter === "web" ? web : curFilter === "onion" ? onion : curFilter === "torrent" ? torrent : [...web, ...onion, ...torrent];
   const pending = darkPending ? " …" : "";
   let h = '<div class="m-tabs">';
-  h += stab("all", "all (" + total + ")") + stab("web", "◈ web (" + web.length + ")") + stab("onion", "▣ onion (" + (onion.length || 0) + pending + ")") + stab("torrent", "▾ torrents (" + (torrent.length || 0) + pending + ")");
+  h += stab("all", "all (" + total + pending + ")") + stab("web", "◈ web (" + web.length + pending + ")") + stab("onion", "▣ onion (" + (onion.length || 0) + pending + ")") + stab("torrent", "▾ torrents (" + (torrent.length || 0) + pending + ")");
   h += "</div>";
   for (const r of list) {
     const b = r.source === "onion" ? "b-onion" : r.source === "torrent" ? "b-torrent" : "b-web";

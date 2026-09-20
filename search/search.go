@@ -5,7 +5,9 @@ package search
 
 import (
 	"crypto/rand"
+	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"html"
 	"io"
@@ -162,15 +164,60 @@ func interleave(lists [][]Result) []Result {
 // Every engine runs in parallel over its own Tor circuit; results are merged
 // round-robin and deduped so one engine going down never empties the page.
 func SearchWeb(query string) Results {
-	lists := make([][]Result, 4)
-	var wg sync.WaitGroup
-	wg.Add(4)
-	go func() { defer wg.Done(); lists[0] = searchBrave(query) }()
-	go func() { defer wg.Done(); lists[1] = searchDDG(query) }()
-	go func() { defer wg.Done(); lists[2] = searchMarginalia(query, 1) }()
-	go func() { defer wg.Done(); lists[3] = searchMarginalia(query, 2) }()
-	wg.Wait()
-	return Results{Query: query, Web: capResults(interleave(lists), 120)}
+	// Whatever has answered within the deadline is shown; a slow engine is not
+	// lost, it is simply picked up again by the deep sweep.
+	return Results{Query: query, Web: run([]func() []Result{
+		func() []Result { return searchBrave(query) },
+		func() []Result { return searchDDG(query) },
+		func() []Result { return searchBing(query, 1) },
+		func() []Result { return searchMwmbl(query) },
+	}, 9*time.Second)}
+}
+
+// SearchMore is the deep sweep: further pages of the engines that paginate over
+// Tor. It runs after SearchWeb so the first screen is not held back by it.
+func SearchMore(query string) Results {
+	jobs := []func() []Result{
+		// repeated in case they missed the fast pass deadline
+		func() []Result { return searchBrave(query) },
+		func() []Result { return searchMwmbl(query) },
+		func() []Result { return searchMarginalia(query, 1) },
+		func() []Result { return searchMarginalia(query, 2) },
+		func() []Result { return searchMarginalia(query, 3) },
+	}
+	for _, first := range []int{11, 21, 31, 41, 51, 61, 71, 81} {
+		first := first
+		jobs = append(jobs, func() []Result { return searchBing(query, first) })
+	}
+	return Results{Query: query, Web: run(jobs, 45*time.Second)}
+}
+
+// run executes every source in parallel, each on its own circuit, and merges
+// the lists round-robin so the page is never dominated by one engine. Sources
+// still running at the deadline are abandoned rather than holding up the page.
+func run(jobs []func() []Result, deadline time.Duration) []Result {
+	lists := make([][]Result, len(jobs))
+	done := make(chan int, len(jobs))
+	for i, job := range jobs {
+		go func(i int, job func() []Result) {
+			lists[i] = job()
+			done <- i
+		}(i, job)
+	}
+
+	ready := make([][]Result, 0, len(jobs))
+	timeout := time.After(deadline)
+	for range jobs {
+		select {
+		case i := <-done:
+			if len(lists[i]) > 0 {
+				ready = append(ready, lists[i])
+			}
+		case <-timeout:
+			return capResults(interleave(ready), 300)
+		}
+	}
+	return capResults(interleave(ready), 300)
 }
 
 // SearchDark returns onion + torrent results (slower; fetched after web).
@@ -289,6 +336,104 @@ func parseBrave(h string) []Result {
 			r.Snippet = truncate(stripTags(sm[1]), 200)
 		}
 		results = append(results, r)
+	}
+	return results
+}
+
+var (
+	bingBlockRe = regexp.MustCompile(`(?is)<li class="b_algo".*?(?:</li>|$)`)
+	bingTitleRe = regexp.MustCompile(`(?is)<h2[^>]*>\s*<a[^>]+href="([^"]+)"[^>]*>(.*?)</a>`)
+	bingSnipRe  = regexp.MustCompile(`(?is)<p class="b_lineclamp[^"]*"[^>]*>(.*?)</p>`)
+	bingRedirRe = regexp.MustCompile(`u=a1([A-Za-z0-9_-]+)`)
+)
+
+// searchBing walks Bing 10 hits at a time. Its ck/a links hide the real URL in
+// a base64 "u=a1…" parameter, which is decoded back to the destination so no
+// click ever passes through Bing.
+func searchBing(query string, first int) []Result {
+	u := "https://www.bing.com/search?q=" + urlEncode(query) + "&setmkt=en-US&setlang=en"
+	if first > 1 {
+		u += "&first=" + itoa(first)
+	}
+	h, err := fetchT(u, 25*time.Second)
+	if err != nil {
+		return nil
+	}
+	return parseBing(h)
+}
+
+func parseBing(h string) []Result {
+	var results []Result
+	seen := map[string]bool{}
+	for _, block := range bingBlockRe.FindAllString(h, -1) {
+		tm := bingTitleRe.FindStringSubmatch(block)
+		if tm == nil {
+			continue
+		}
+		u := bingURL(tm[1])
+		title := stripTags(tm[2])
+		if u == "" || title == "" || seen[u] || isAd(u) {
+			continue
+		}
+		seen[u] = true
+		r := Result{URL: u, Title: title, Source: "web"}
+		if sm := bingSnipRe.FindStringSubmatch(block); sm != nil {
+			r.Snippet = truncate(stripTags(sm[1]), 200)
+		}
+		results = append(results, r)
+	}
+	return results
+}
+
+func bingURL(raw string) string {
+	raw = html.UnescapeString(raw)
+	if m := bingRedirRe.FindStringSubmatch(raw); m != nil {
+		if b, err := base64.RawURLEncoding.DecodeString(strings.TrimRight(m[1], "=")); err == nil {
+			raw = string(b)
+		}
+	}
+	if !strings.HasPrefix(raw, "http") || strings.Contains(raw, "bing.com/") {
+		return ""
+	}
+	return raw
+}
+
+// mwmblResult mirrors the api.mwmbl.org response: an independent, community
+// crawled index that answers JSON without blocking Tor.
+type mwmblResult struct {
+	URL     string                   `json:"url"`
+	Title   []struct{ Value string } `json:"title"`
+	Extract []struct{ Value string } `json:"extract"`
+}
+
+func searchMwmbl(query string) []Result {
+	body, err := fetchT("https://api.mwmbl.org/api/v1/search/?s="+urlEncode(query), 20*time.Second)
+	if err != nil {
+		return nil
+	}
+	var raw []mwmblResult
+	if json.Unmarshal([]byte(body), &raw) != nil {
+		return nil
+	}
+	var results []Result
+	for _, r := range raw {
+		title := ""
+		for _, t := range r.Title {
+			title += t.Value
+		}
+		if !strings.HasPrefix(r.URL, "http") || strings.TrimSpace(title) == "" {
+			continue
+		}
+		snippet := ""
+		for _, e := range r.Extract {
+			snippet += e.Value
+		}
+		results = append(results, Result{
+			URL:     r.URL,
+			Title:   stripTags(title),
+			Snippet: truncate(stripTags(snippet), 200),
+			Source:  "web",
+		})
 	}
 	return results
 }
