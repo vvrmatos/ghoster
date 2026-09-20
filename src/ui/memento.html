@@ -329,31 +329,41 @@
       renderAll();
     }
 
-    // ── DuckDuckGo (clearnet web) ──
+    // ── DuckDuckGo (clearnet web) — multiple pages ──
     async function searchDDG(query) {
-      const resp = await fetch("https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query));
-      const html = await resp.text();
       const results = [];
-      const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
-      let m;
-      while ((m = re.exec(html)) !== null) {
-        let url = m[1];
-        const title = m[2].replace(/<[^>]+>/g, "").trim();
-        if (url.includes("uddg=")) {
-          const uddg = url.match(/uddg=([^&]+)/);
-          if (uddg) url = decodeURIComponent(uddg[1]);
+      // DDG HTML paginates with s= offset (0, 30, 60...)
+      const offsets = [0, 30, 60];
+      const pages = await Promise.allSettled(offsets.map(s =>
+        fetch("https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query) + "&s=" + s + "&dc=" + (s + 1))
+          .then(r => r.text())
+      ));
+
+      for (const page of pages) {
+        if (page.status !== "fulfilled") continue;
+        const html = page.value;
+        const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
+        const snippets = [];
+        const snipRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
+        let sm;
+        while ((sm = snipRe.exec(html)) !== null) {
+          snippets.push(sm[1].replace(/<[^>]+>/g, "").trim().slice(0, 200));
         }
-        if (url.startsWith("http") && title && !results.find(r => r.url === url)) {
-          results.push({ url, title, source: "web" });
+        let m, idx = 0;
+        while ((m = re.exec(html)) !== null) {
+          let url = m[1];
+          const title = m[2].replace(/<[^>]+>/g, "").trim();
+          if (url.includes("uddg=")) {
+            const uddg = url.match(/uddg=([^&]+)/);
+            if (uddg) url = decodeURIComponent(uddg[1]);
+          }
+          if (url.startsWith("http") && title && !results.find(r => r.url === url)) {
+            results.push({ url, title, source: "web", snippet: snippets[idx] || "" });
+          }
+          idx++;
         }
       }
-      const snipRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
-      let si = 0;
-      while ((m = snipRe.exec(html)) !== null && si < results.length) {
-        results[si].snippet = m[1].replace(/<[^>]+>/g, "").trim().slice(0, 200);
-        si++;
-      }
-      return results.slice(0, 20);
+      return results.slice(0, 60);
     }
 
     // ── Ahmia (.onion hidden services) ──
@@ -380,7 +390,7 @@
         const txt = m[1].replace(/<[^>]+>/g, "").trim();
         if (txt.length > 20) { results[si].snippet = txt.slice(0, 200); si++; }
       }
-      return results.slice(0, 20);
+      return results.slice(0, 50);
     }
 
     // ── BTDigg (torrent / DHT) ──
@@ -406,7 +416,7 @@
           results.push({ url: magnet, title, snippet, source: "torrent" });
         }
       }
-      return results.slice(0, 20);
+      return results.slice(0, 50);
     }
 
     function renderAll() {
