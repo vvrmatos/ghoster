@@ -331,6 +331,11 @@ app.on("web-contents-created", (_e, contents) => {
   });
   // Block all navigation to non-http(s) URLs
   contents.on("will-navigate", (event, url) => {
+    if (url.startsWith("magnet:")) {
+      event.preventDefault();
+      require("electron").shell.openExternal(url).catch(() => {});
+      return;
+    }
     if (!url.startsWith("http://") && !url.startsWith("https://") && !url.startsWith("file://")) {
       event.preventDefault();
     }

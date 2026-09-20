@@ -156,6 +156,44 @@
       border-bottom: 1px solid var(--border);
     }
 
+    .src-tabs {
+      display: flex;
+      gap: 6px;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .src-tab {
+      background: var(--bg1);
+      border: 1px solid var(--border);
+      color: var(--dim);
+      border-radius: 6px;
+      padding: 5px 12px;
+      font-size: 11px;
+      font-family: inherit;
+      cursor: pointer;
+      transition: all 0.15s;
+    }
+
+    .src-tab:hover { border-color: var(--accent); color: var(--text); }
+    .src-tab.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+    .src-badge {
+      display: inline-block;
+      font-size: 9px;
+      padding: 1px 6px;
+      border-radius: 3px;
+      margin-right: 6px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+
+    .src-web { background: #1e3a5f; color: #7cc4ff; }
+    .src-onion { background: #3a1e5f; color: #c47cff; }
+    .src-torrent { background: #5f3a1e; color: #ffb47c; }
+
     .result {
       margin-bottom: 20px;
       padding: 12px 16px;
@@ -265,23 +303,36 @@
     const home = document.getElementById("home");
     const resultsContainer = document.getElementById("results-container");
 
+    let allResults = { web: [], onion: [], torrent: [] };
+    let currentFilter = "all";
+    let currentQuery = "";
+
     async function doSearch(query) {
       if (!query.trim()) return;
+      currentQuery = query;
 
       home.classList.add("has-results");
-      resultsContainer.innerHTML = '<div class="loading">searching through tor<span class="loading-dot">_</span></div>';
+      resultsContainer.innerHTML = '<div class="loading">searching web + tor + torrents<span class="loading-dot">_</span></div>';
+      allResults = { web: [], onion: [], torrent: [] };
 
-      try {
-        const resp = await fetch("https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query));
-        const html = await resp.text();
-        const results = parseDDG(html, query);
-        renderResults(results);
-      } catch (err) {
-        resultsContainer.innerHTML = '<div class="error">search failed — ' + err.message + '</div>';
-      }
+      // Fire all three sources in parallel
+      const [web, onion, torrent] = await Promise.allSettled([
+        searchDDG(query),
+        searchAhmia(query),
+        searchBTDigg(query),
+      ]);
+
+      allResults.web = web.status === "fulfilled" ? web.value : [];
+      allResults.onion = onion.status === "fulfilled" ? onion.value : [];
+      allResults.torrent = torrent.status === "fulfilled" ? torrent.value : [];
+
+      renderAll();
     }
 
-    function parseDDG(html, query) {
+    // ── DuckDuckGo (clearnet web) ──
+    async function searchDDG(query) {
+      const resp = await fetch("https://html.duckduckgo.com/html/?q=" + encodeURIComponent(query));
+      const html = await resp.text();
       const results = [];
       const re = /<a[^>]+class="result__a"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi;
       let m;
@@ -293,7 +344,7 @@
           if (uddg) url = decodeURIComponent(uddg[1]);
         }
         if (url.startsWith("http") && title && !results.find(r => r.url === url)) {
-          results.push({ url, title });
+          results.push({ url, title, source: "web" });
         }
       }
       const snipRe = /<a[^>]+class="result__snippet"[^>]*>([\s\S]*?)<\/a>/gi;
@@ -302,42 +353,134 @@
         results[si].snippet = m[1].replace(/<[^>]+>/g, "").trim().slice(0, 200);
         si++;
       }
-      return { ok: true, results: results.slice(0, 15), query };
+      return results.slice(0, 20);
     }
 
-    function renderResults(data) {
-      if (!data.ok || data.results.length === 0) {
+    // ── Ahmia (.onion hidden services) ──
+    async function searchAhmia(query) {
+      const resp = await fetch("https://ahmia.fi/search/?q=" + encodeURIComponent(query));
+      const html = await resp.text();
+      const results = [];
+      // Ahmia results: <li class="result"><h4><a href="/search/redirect?...redirect_url=URL">title</a>
+      const re = /<a[^>]+href="([^"]*(?:redirect_url=|http[^"]*\.onion)[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
+      let m;
+      while ((m = re.exec(html)) !== null) {
+        let url = m[1];
+        const rd = url.match(/redirect_url=([^&"]+)/);
+        if (rd) url = decodeURIComponent(rd[1]);
+        const title = m[2].replace(/<[^>]+>/g, "").trim();
+        if (url.includes(".onion") && title && !results.find(r => r.url === url)) {
+          results.push({ url, title, source: "onion" });
+        }
+      }
+      // snippets
+      const snipRe = /<p>([\s\S]*?)<\/p>/gi;
+      let si = 0;
+      while ((m = snipRe.exec(html)) !== null && si < results.length) {
+        const txt = m[1].replace(/<[^>]+>/g, "").trim();
+        if (txt.length > 20) { results[si].snippet = txt.slice(0, 200); si++; }
+      }
+      return results.slice(0, 20);
+    }
+
+    // ── BTDigg (torrent / DHT) ──
+    async function searchBTDigg(query) {
+      const resp = await fetch("https://btdig.com/search?q=" + encodeURIComponent(query));
+      const html = await resp.text();
+      const results = [];
+      // BTDigg: <div class="one_result"> ... <a href="magnet:?...">name</a> ... size ... files
+      const blockRe = /<div class="one_result"[\s\S]*?<\/div>\s*<\/div>/gi;
+      let block;
+      while ((block = blockRe.exec(html)) !== null) {
+        const b = block[0];
+        const nameM = b.match(/<div class="torrent_name"[^>]*>[\s\S]*?<a[^>]*>([\s\S]*?)<\/a>/i);
+        const magM = b.match(/href="(magnet:\?[^"]+)"/i);
+        const sizeM = b.match(/<span class="torrent_size"[^>]*>([\s\S]*?)<\/span>/i);
+        const filesM = b.match(/<span class="torrent_files"[^>]*>([\s\S]*?)<\/span>/i);
+        if (nameM && magM) {
+          const title = nameM[1].replace(/<[^>]+>/g, "").trim();
+          const magnet = magM[1];
+          let snippet = "";
+          if (sizeM) snippet += "size: " + sizeM[1].replace(/<[^>]+>/g, "").trim() + " ";
+          if (filesM) snippet += "· files: " + filesM[1].replace(/<[^>]+>/g, "").trim();
+          results.push({ url: magnet, title, snippet, source: "torrent" });
+        }
+      }
+      return results.slice(0, 20);
+    }
+
+    function renderAll() {
+      const web = allResults.web, onion = allResults.onion, torrent = allResults.torrent;
+      const total = web.length + onion.length + torrent.length;
+
+      if (total === 0) {
         resultsContainer.innerHTML =
           '<div class="no-results"><div class="no-results-icon"><img src="icon.png" style="width:48px;height:48px;border-radius:10px;opacity:0.5"></div><div class="no-results-text">nothing found — even ghosts have limits</div></div>';
         return;
       }
 
       let html = '<div class="results">';
-      html += '<div class="results-meta">' + data.results.length + ' results for "' + escapeHtml(data.query) + '"</div>';
-      for (const r of data.results) {
-        let domain = "";
-        try { domain = new URL(r.url).hostname; } catch { domain = r.url; }
-        html += '<div class="result">';
-        html += '<div class="result-url">' + escapeHtml(domain) + '</div>';
-        html += '<a class="result-title" href="' + escapeHtml(r.url) + '">' + escapeHtml(r.title) + '</a>';
-        if (r.snippet) html += '<div class="result-snippet">' + escapeHtml(r.snippet) + '</div>';
-        html += '</div>';
+      // Filter tabs
+      html += '<div class="src-tabs">';
+      html += tabBtn("all", "all (" + total + ")");
+      html += tabBtn("web", "◈ web (" + web.length + ")");
+      html += tabBtn("onion", "▣ onion (" + onion.length + ")");
+      html += tabBtn("torrent", "▾ torrents (" + torrent.length + ")");
+      html += '</div>';
+
+      let list = [];
+      if (currentFilter === "all") list = [...web, ...onion, ...torrent];
+      else if (currentFilter === "web") list = web;
+      else if (currentFilter === "onion") list = onion;
+      else if (currentFilter === "torrent") list = torrent;
+
+      for (const r of list) {
+        html += renderResult(r);
       }
       html += '</div>';
       resultsContainer.innerHTML = html;
+
+      document.querySelectorAll(".src-tab").forEach(t => {
+        t.addEventListener("click", () => { currentFilter = t.dataset.src; renderAll(); });
+      });
+    }
+
+    function tabBtn(src, label) {
+      return '<button class="src-tab' + (currentFilter === src ? ' active' : '') + '" data-src="' + src + '">' + label + '</button>';
+    }
+
+    function renderResult(r) {
+      let label = "", cls = "";
+      if (r.source === "onion") { label = "onion"; cls = "src-onion"; }
+      else if (r.source === "torrent") { label = "torrent"; cls = "src-torrent"; }
+      else { label = "web"; cls = "src-web"; }
+
+      let display = r.url;
+      if (r.source === "torrent") {
+        const dn = r.url.match(/dn=([^&]+)/);
+        display = "magnet: " + (dn ? decodeURIComponent(dn[1]).slice(0, 40) : "torrent");
+      } else {
+        try { display = new URL(r.url).hostname; } catch {}
+      }
+
+      let h = '<div class="result">';
+      h += '<div class="result-url"><span class="src-badge ' + cls + '">' + label + '</span> ' + escapeHtml(display) + '</div>';
+      h += '<a class="result-title" href="' + escapeHtml(r.url) + '">' + escapeHtml(r.title) + '</a>';
+      if (r.snippet) h += '<div class="result-snippet">' + escapeHtml(r.snippet) + '</div>';
+      h += '</div>';
+      return h;
     }
 
     function escapeHtml(s) {
-      return s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+      return (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
     }
 
     searchInput.addEventListener("keydown", (e) => {
-      if (e.key === "Enter") doSearch(searchInput.value);
+      if (e.key === "Enter") { currentFilter = "all"; doSearch(searchInput.value); }
     });
 
-    searchBtn.addEventListener("click", () => doSearch(searchInput.value));
+    searchBtn.addEventListener("click", () => { currentFilter = "all"; doSearch(searchInput.value); });
 
-    // Auto-search if loaded with ?q= param
     const urlParams = new URLSearchParams(window.location.search);
     if (urlParams.has("q")) {
       const q = urlParams.get("q");
