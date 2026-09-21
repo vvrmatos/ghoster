@@ -59,6 +59,13 @@ Marginalia, TorDex, BTDigg). Page 1 waits for every engine — there is no
 deadline that silently drops a source, which is what made the result count
 jump on every search.
 
+Successful pages live in a **15-minute memory-only cache**. Refreshing the same
+query therefore gives the same ordering and result set immediately instead of
+rolling the dice on a new collection of Tor exits. The cache never touches disk
+and **New Identity** clears it. The toolbar refresh button and `Cmd/Ctrl+R`
+both rerun the current search; dark-web and torrent sources fill in behind the
+web results and cannot delay the first page.
+
 | Source | Index | Notes |
 |---|---|---|
 | Brave | clear web | ~20 results, first page only (further offsets 429 over Tor) |

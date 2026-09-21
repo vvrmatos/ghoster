@@ -54,7 +54,10 @@ let tabs = [], activeId = null, counter = 0;
 
 function newTab(url) {
   const id = "t" + (++counter);
-  const tab = { id, title: "ghoster", url: url || "", isMemento: !url };
+  const tab = {
+    id, title: "ghoster", url: url || "", isMemento: !url,
+    searchData: null, searchFilter: "all", searchToken: 0,
+  };
 
   if (tab.isMemento) {
     const div = document.createElement("div");
@@ -127,6 +130,8 @@ function navigate(input) {
 
 function loadURL(t, url) {
   startLoad();
+  t.searchToken++;
+  t.searchData = null;
   t.isMemento = false; t.url = url; t.title = new URL(url).hostname;
   if (t.el.tagName !== "IFRAME") {
     const f = document.createElement("iframe");
@@ -141,6 +146,9 @@ function loadURL(t, url) {
 }
 
 function loadMemento(t) {
+  t.searchToken++;
+  t.searchData = null;
+  t.searchFilter = "all";
   t.isMemento = true; t.url = ""; t.title = "ghoster";
   const div = document.createElement("div");
   div.className = "memento-view active-view"; div.id = t.id;
@@ -241,18 +249,21 @@ function searchInTab(t, q) {
 }
 
 const PAGE = 20;
-let lastData = null, curFilter = "all";
 
-function filtered(data) {
+function filtered(tab) {
+  const data = tab.searchData;
+  if (!data) return [];
   const web = data.web || [], onion = data.onion || [], torrent = data.torrent || [];
-  if (curFilter === "web") return web;
-  if (curFilter === "onion") return onion;
-  if (curFilter === "torrent") return torrent;
+  if (tab.searchFilter === "web") return web;
+  if (tab.searchFilter === "onion") return onion;
+  if (tab.searchFilter === "torrent") return torrent;
   return [...web, ...onion, ...torrent];
 }
 
 async function doSearch(tab, query) {
-  if (!query.trim()) return;
+  query = query.trim();
+  if (!query) return;
+  const token = ++tab.searchToken;
   const root = tab.el;
   root.querySelector(".m-home").classList.add("has");
   const ring = root.querySelector(".m-logo-wrap");
@@ -264,19 +275,38 @@ async function doSearch(tab, query) {
   const box = root.querySelector(".m-input");
   if (box) box.value = query;
 
-  lastData = { web: [], onion: [], torrent: [], query, page: 1, enginePage: 1, hasMore: true };
-  curFilter = "all";
+  tab.searchData = {
+    web: [], onion: [], torrent: [], query, page: 1,
+    webEnginePage: 1, darkEnginePage: 1,
+    webHasMore: true, darkHasMore: true, loading: true,
+  };
+  tab.searchFilter = "all";
+
+  // Web results are the critical path. Dark sources are independent and must
+  // never make the ordinary search screen wait for an onion timeout.
   try {
-    const [web, dark] = await Promise.all([SearchPage(query, 1), SearchDarkPage(query, 1)]);
-    lastData.web = web.web || [];
-    lastData.onion = dark.onion || [];
-    lastData.torrent = dark.torrent || [];
-    lastData.hasMore = !!(web.hasMore || dark.hasMore);
+    const web = await SearchPage(query, 1);
+    if (token !== tab.searchToken) return;
+    tab.searchData.web = web.web || [];
+    tab.searchData.webHasMore = !!web.hasMore;
   } catch (e) {
-    lastData.hasMore = false;
+    if (token !== tab.searchToken) return;
+    tab.searchData.webHasMore = false;
   }
+  if (token !== tab.searchToken) return;
+  tab.searchData.loading = false;
   if (ring) ring.classList.remove("searching");
   renderResults(tab);
+
+  SearchDarkPage(query, 1).then((dark) => {
+    if (token !== tab.searchToken || !tab.searchData) return;
+    tab.searchData.onion = dark.onion || [];
+    tab.searchData.torrent = dark.torrent || [];
+    tab.searchData.darkHasMore = !!dark.hasMore;
+    if (activeTab() === tab) renderResults(tab);
+  }).catch(() => {
+    if (token === tab.searchToken && tab.searchData) tab.searchData.darkHasMore = false;
+  });
 }
 
 // mergeResults appends new hits, skipping URLs already on screen.
@@ -293,40 +323,60 @@ function mergeResults(current, extra) {
 }
 
 async function goPage(tab, dir) {
-  if (!lastData) return;
-  const next = lastData.page + dir;
+  const data = tab.searchData;
+  if (!data || data.loading) return;
+  const next = data.page + dir;
   if (next < 1) return;
-  const list = filtered(lastData);
   const need = next * PAGE;
-  if (list.length < need && lastData.hasMore) {
+  const wantsWeb = tab.searchFilter === "all" || tab.searchFilter === "web";
+  const wantsDark = tab.searchFilter === "all" || tab.searchFilter === "onion" || tab.searchFilter === "torrent";
+  let canFetch = (wantsWeb && data.webHasMore) || (wantsDark && data.darkHasMore);
+  if (filtered(tab).length < need && canFetch) {
     const ring = tab.el.querySelector(".m-logo-wrap");
     if (ring) ring.classList.add("searching");
-    lastData.enginePage += 1;
-    try {
-      const [web, dark] = await Promise.all([
-        SearchPage(lastData.query, lastData.enginePage),
-        SearchDarkPage(lastData.query, lastData.enginePage),
-      ]);
-      lastData.web = mergeResults(lastData.web, web.web || []);
-      lastData.onion = mergeResults(lastData.onion, dark.onion || []);
-      lastData.torrent = mergeResults(lastData.torrent, dark.torrent || []);
-      lastData.hasMore = !!(web.hasMore || dark.hasMore);
-    } catch (e) {
-      lastData.hasMore = false;
+    data.loading = true;
+    renderResults(tab);
+
+    // An engine page is commonly only 10 hits. Keep walking until the visible
+    // UI page has 20, the engines are exhausted, or four sweeps have run.
+    for (let sweep = 0; sweep < 4 && filtered(tab).length < need && canFetch; sweep++) {
+      const jobs = [];
+      if (wantsWeb && data.webHasMore) {
+        const page = ++data.webEnginePage;
+        jobs.push(SearchPage(data.query, page).then((web) => {
+          data.web = mergeResults(data.web, web.web || []);
+          data.webHasMore = !!web.hasMore;
+        }).catch(() => { data.webHasMore = false; }));
+      }
+      if (wantsDark && data.darkHasMore) {
+        const page = ++data.darkEnginePage;
+        jobs.push(SearchDarkPage(data.query, page).then((dark) => {
+          data.onion = mergeResults(data.onion, dark.onion || []);
+          data.torrent = mergeResults(data.torrent, dark.torrent || []);
+          data.darkHasMore = !!dark.hasMore;
+        }).catch(() => { data.darkHasMore = false; }));
+      }
+      await Promise.all(jobs);
+      if (tab.searchData !== data) return;
+      canFetch = (wantsWeb && data.webHasMore) || (wantsDark && data.darkHasMore);
     }
+
+    data.loading = false;
     if (ring) ring.classList.remove("searching");
   }
-  const have = filtered(lastData).length;
-  if (dir > 0 && have <= (lastData.page - 1) * PAGE && !lastData.hasMore) return;
-  if (next > Math.ceil(have / PAGE) && !lastData.hasMore) return;
-  lastData.page = next;
+  const have = filtered(tab).length;
+  const stillMore = (wantsWeb && data.webHasMore) || (wantsDark && data.darkHasMore);
+  if (dir > 0 && have <= (data.page - 1) * PAGE && !stillMore) return;
+  if (next > Math.ceil(have / PAGE) && !stillMore) return;
+  data.page = next;
   renderResults(tab);
 }
 
 function renderResults(tab) {
-  const data = lastData;
+  const data = tab.searchData;
+  if (!data) return;
   const rc = tab.el.querySelector(".m-results");
-  const list = filtered(data);
+  const list = filtered(tab);
   if (!list.length) { rc.innerHTML = '<div class="m-empty">nothing found — even ghosts have limits</div>'; return; }
 
   const pages = Math.max(1, Math.ceil(list.length / PAGE));
@@ -334,23 +384,24 @@ function renderResults(tab) {
   const from = (data.page - 1) * PAGE;
   const slice = list.slice(from, from + PAGE);
   const to = from + slice.length;
-  const more = data.hasMore ? "+" : "";
+  const more = ((tab.searchFilter === "all" || tab.searchFilter === "web") && data.webHasMore) ||
+    ((tab.searchFilter === "all" || tab.searchFilter === "onion" || tab.searchFilter === "torrent") && data.darkHasMore);
   const canPrev = data.page > 1;
-  const canNext = data.page < pages || data.hasMore;
+  const canNext = !data.loading && (data.page < pages || more);
 
   let h = '<div class="m-tabs">';
-  h += stab("all", "all") + stab("web", "◈ web") + stab("onion", "▣ onion") + stab("torrent", "▾ torrents");
+  h += stab(tab, "all", "all") + stab(tab, "web", "◈ web") + stab(tab, "onion", "▣ onion") + stab(tab, "torrent", "▾ torrents");
   h += "</div>";
-  h += `<div class="m-range">${from + 1}–${to} of ${list.length}${more}</div>`;
+  h += `<div class="m-range">results ${from + 1}–${to}${more ? " · more available" : ""}</div>`;
   for (const r of slice) {
     const b = r.source === "onion" ? "b-onion" : r.source === "torrent" ? "b-torrent" : "b-web";
     let disp = r.url;
     try { if (r.source !== "torrent") disp = new URL(r.url).hostname; else disp = "magnet"; } catch {}
     h += `<div class="m-res"><div class="m-url"><span class="m-badge ${b}">${r.source}</span>${esc(disp)}</div><a class="m-title" data-url="${esc(r.url)}" data-src="${r.source}">${esc(r.title)}</a>${r.snippet ? `<div class="m-snip">${esc(r.snippet)}</div>` : ""}</div>`;
   }
-  h += `<div class="m-pager"><button class="m-page" id="m-prev" ${canPrev ? "" : "disabled"}>← prev</button><span class="m-page-n">page ${data.page}</span><button class="m-page" id="m-next" ${canNext ? "" : "disabled"}>next →</button></div>`;
+  h += `<div class="m-pager"><button class="m-page" id="m-prev" ${canPrev && !data.loading ? "" : "disabled"}>← prev</button><span class="m-page-n">${data.loading ? "loading…" : "page " + data.page}</span><button class="m-page" id="m-next" ${canNext ? "" : "disabled"}>next →</button></div>`;
   rc.innerHTML = h;
-  rc.querySelectorAll(".m-stab").forEach((t) => t.addEventListener("click", () => { curFilter = t.dataset.src; lastData.page = 1; renderResults(tab); }));
+  rc.querySelectorAll(".m-stab").forEach((t) => t.addEventListener("click", () => { tab.searchFilter = t.dataset.src; data.page = 1; renderResults(tab); }));
   const prev = rc.querySelector("#m-prev");
   const next = rc.querySelector("#m-next");
   if (prev) prev.addEventListener("click", () => goPage(tab, -1));
@@ -361,7 +412,7 @@ function renderResults(tab) {
     else loadURL(activeTab(), url);
   }));
 }
-function stab(src, label) { return `<button class="m-stab${curFilter === src ? " active" : ""}" data-src="${src}">${label}</button>`; }
+function stab(tab, src, label) { return `<button class="m-stab${tab.searchFilter === src ? " active" : ""}" data-src="${src}">${label}</button>`; }
 
 // ── LOAD BAR ──
 const lbFill = document.getElementById("loadbar-fill");
@@ -398,7 +449,25 @@ function renderCountries(filter) {
 // ── TOOLBAR + PANELS ──
 document.getElementById("btn-back").addEventListener("click", () => { const t = activeTab(); if (t && t.el.tagName === "IFRAME") t.el.contentWindow.history.back(); });
 document.getElementById("btn-fwd").addEventListener("click", () => { const t = activeTab(); if (t && t.el.tagName === "IFRAME") t.el.contentWindow.history.forward(); });
-document.getElementById("btn-reload").addEventListener("click", () => { const t = activeTab(); if (t && t.el.tagName === "IFRAME") { startLoad(); t.el.src = t.el.src; } });
+function refreshActive() {
+  const t = activeTab();
+  if (!t) return;
+  if (t.isMemento) {
+    const query = t.searchData?.query || t.el.querySelector(".m-input")?.value || "";
+    if (query.trim()) doSearch(t, query);
+    else loadMemento(t);
+    return;
+  }
+  startLoad();
+  t.el.src = t.el.src;
+}
+document.getElementById("btn-reload").addEventListener("click", refreshActive);
+document.addEventListener("keydown", (e) => {
+  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") {
+    e.preventDefault();
+    refreshActive();
+  }
+});
 document.getElementById("btn-home").addEventListener("click", () => { const t = activeTab(); if (t) loadMemento(t); });
 document.getElementById("btn-new-tab").addEventListener("click", () => newTab());
 document.getElementById("btn-newid").addEventListener("click", async () => { const h = await NewIdentity(); statusText.textContent = "◈ new identity — " + h; setTimeout(() => statusText.textContent = "", 3000); const t = activeTab(); if (t && !t.isMemento) loadURL(t, t.url); });

@@ -43,6 +43,89 @@ type Results struct {
 	HasMore bool     `json:"hasMore"`
 }
 
+const cacheTTL = 15 * time.Minute
+
+type cachedResults struct {
+	results Results
+	expires time.Time
+}
+
+type resultFlight struct {
+	done    chan struct{}
+	results Results
+}
+
+var sessionCache = struct {
+	sync.RWMutex
+	items   map[string]cachedResults
+	flights map[string]*resultFlight
+}{
+	items:   make(map[string]cachedResults),
+	flights: make(map[string]*resultFlight),
+}
+
+func cacheKey(kind, query string, page int) string {
+	return kind + "\x00" + strings.ToLower(strings.TrimSpace(query)) + "\x00" + itoa(page)
+}
+
+func cacheGet(key string) (Results, bool) {
+	sessionCache.RLock()
+	entry, ok := sessionCache.items[key]
+	sessionCache.RUnlock()
+	if !ok || time.Now().After(entry.expires) {
+		if ok {
+			sessionCache.Lock()
+			delete(sessionCache.items, key)
+			sessionCache.Unlock()
+		}
+		return Results{}, false
+	}
+	return entry.results, true
+}
+
+func cachePut(key string, results Results) {
+	sessionCache.Lock()
+	sessionCache.items[key] = cachedResults{results: results, expires: time.Now().Add(cacheTTL)}
+	sessionCache.Unlock()
+}
+
+// cachedCall returns a cached result or joins the one in-flight request for
+// this query/page. Repeated refreshes cannot fan out duplicate Tor searches.
+func cachedCall(key string, valid func(Results) bool, load func() Results) Results {
+	if cached, ok := cacheGet(key); ok {
+		return cached
+	}
+
+	sessionCache.Lock()
+	if flight, ok := sessionCache.flights[key]; ok {
+		sessionCache.Unlock()
+		<-flight.done
+		return flight.results
+	}
+	flight := &resultFlight{done: make(chan struct{})}
+	sessionCache.flights[key] = flight
+	sessionCache.Unlock()
+
+	results := load()
+
+	sessionCache.Lock()
+	flight.results = results
+	if valid(results) {
+		sessionCache.items[key] = cachedResults{results: results, expires: time.Now().Add(cacheTTL)}
+	}
+	delete(sessionCache.flights, key)
+	close(flight.done)
+	sessionCache.Unlock()
+	return results
+}
+
+// ClearCache drops the in-memory search cache. Nothing is persisted to disk.
+func ClearCache() {
+	sessionCache.Lock()
+	clear(sessionCache.items)
+	sessionCache.Unlock()
+}
+
 // circuit returns a random SOCKS credential. Tor's IsolateSOCKSAuth (on by
 // default) gives every distinct user/pass its own circuit and exit node, so
 // each engine — and each retry — looks like a different visitor and the
@@ -67,22 +150,36 @@ func torClient(timeout time.Duration, circ string) *http.Client {
 	}
 }
 
-// fetchT fetches over a fresh Tor circuit. A blocked or rate-limited exit is
-// retried on a new circuit rather than reported as "no results".
+// fetchT fetches over a fresh Tor circuit. timeout is the TOTAL retry budget,
+// not a per-attempt timeout. A dead engine cannot stall a search for three
+// times the advertised duration.
 func fetchT(url string, timeout time.Duration) (string, error) {
 	var lastErr error
+	deadline := time.Now().Add(timeout)
 	for attempt := 0; attempt < 3; attempt++ {
-		body, code, err := fetchOnce(url, timeout, circuit())
+		remaining := time.Until(deadline)
+		if remaining <= 0 {
+			break
+		}
+		attemptTimeout := min(remaining, 8*time.Second)
+		body, code, err := fetchOnce(url, attemptTimeout, circuit())
 		if err != nil {
 			lastErr = err
 			continue
 		}
 		if code == 429 || code == 403 || code >= 500 {
 			lastErr = fmt.Errorf("%s: http %d", url, code)
-			time.Sleep(time.Duration(attempt+1) * 500 * time.Millisecond)
+			delay := time.Duration(attempt+1) * 500 * time.Millisecond
+			if time.Until(deadline) <= delay {
+				break
+			}
+			time.Sleep(delay)
 			continue
 		}
 		return body, nil
+	}
+	if lastErr == nil {
+		lastErr = fmt.Errorf("%s: timeout after %s", url, timeout)
 	}
 	return "", lastErr
 }
@@ -103,7 +200,7 @@ func fetchOnce(url string, timeout time.Duration, circ string) (string, int, err
 	return string(b), resp.StatusCode, err
 }
 
-func fetch(url string) (string, error) { return fetchT(url, 15*time.Second) }
+func fetch(url string) (string, error) { return fetchT(url, 12*time.Second) }
 
 var tagRe = regexp.MustCompile(`<[^>]+>`)
 
@@ -178,39 +275,49 @@ func clampPage(page int) int {
 
 func SearchPage(query string, page int) Results {
 	page = clampPage(page)
-	jobs := []func() []Result{
-		func() []Result { return searchBing(query, 1+(page-1)*10) },
-		func() []Result { return searchMarginalia(query, page) },
-	}
-	if page == 1 {
-		jobs = append(jobs,
-			func() []Result { return searchBrave(query) },
-			func() []Result { return searchDDG(query) },
-			func() []Result { return searchMwmbl(query) },
-		)
-	}
-	web, more := waitAll(jobs)
-	return Results{Query: query, Page: page, Web: web, HasMore: more}
+	key := cacheKey("web", query, page)
+	return cachedCall(key,
+		func(r Results) bool { return len(r.Web) >= 20 || (page > 1 && len(r.Web) >= 8) },
+		func() Results {
+			jobs := []func() []Result{
+				func() []Result { return searchBing(query, 1+(page-1)*10) },
+				func() []Result { return searchMarginalia(query, page) },
+			}
+			if page == 1 {
+				jobs = append(jobs,
+					func() []Result { return searchBrave(query) },
+					func() []Result { return searchDDG(query) },
+					func() []Result { return searchMwmbl(query) },
+				)
+			}
+			web, more := waitAll(jobs)
+			return Results{Query: query, Page: page, Web: web, HasMore: more}
+		})
 }
 
 // SearchDarkPage fetches one page of onion + torrent results.
 func SearchDarkPage(query string, page int) Results {
 	page = clampPage(page)
-	var onion, torrent []Result
-	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		lists := [][]Result{searchTordex(query, page)}
-		if page == 1 {
-			lists = append(lists, searchAhmia(query))
-		}
-		onion = interleave(lists)
-	}()
-	go func() { defer wg.Done(); torrent = btdiggPage(query, page-1) }()
-	wg.Wait()
-	more := len(onion) >= 8 || len(torrent) >= 8
-	return Results{Query: query, Page: page, Onion: onion, Torrent: torrent, HasMore: more}
+	key := cacheKey("dark", query, page)
+	return cachedCall(key,
+		func(r Results) bool { return len(r.Onion)+len(r.Torrent) >= 8 },
+		func() Results {
+			var onion, torrent []Result
+			var wg sync.WaitGroup
+			wg.Add(2)
+			go func() {
+				defer wg.Done()
+				lists := [][]Result{searchTordex(query, page)}
+				if page == 1 {
+					lists = append(lists, searchAhmia(query))
+				}
+				onion = interleave(lists)
+			}()
+			go func() { defer wg.Done(); torrent = btdiggPage(query, page-1) }()
+			wg.Wait()
+			more := len(onion) >= 8 || len(torrent) >= 8
+			return Results{Query: query, Page: page, Onion: onion, Torrent: torrent, HasMore: more}
+		})
 }
 
 // SearchWeb is page 1 of the clearnet engines (kept for older callers).
@@ -312,7 +419,7 @@ var (
 // searchBrave scrapes Brave Search, which serves its own index and answers
 // plain HTML over Tor (20 hits per query, no CAPTCHA).
 func searchBrave(query string) []Result {
-	h, err := fetchT("https://search.brave.com/search?q="+urlEncode(query), 20*time.Second)
+	h, err := fetchT("https://search.brave.com/search?q="+urlEncode(query), 12*time.Second)
 	if err != nil {
 		return nil
 	}
@@ -364,7 +471,7 @@ func searchBing(query string, first int) []Result {
 	if first > 1 {
 		u += "&first=" + itoa(first)
 	}
-	h, err := fetchT(u, 25*time.Second)
+	h, err := fetchT(u, 12*time.Second)
 	if err != nil {
 		return nil
 	}
@@ -416,7 +523,7 @@ type mwmblResult struct {
 }
 
 func searchMwmbl(query string) []Result {
-	body, err := fetchT("https://api.mwmbl.org/api/v1/search/?s="+urlEncode(query), 20*time.Second)
+	body, err := fetchT("https://api.mwmbl.org/api/v1/search/?s="+urlEncode(query), 12*time.Second)
 	if err != nil {
 		return nil
 	}
@@ -458,7 +565,7 @@ func searchMarginalia(query string, page int) []Result {
 	if page > 1 {
 		u += "&page=" + itoa(page)
 	}
-	h, err := fetchT(u, 20*time.Second)
+	h, err := fetchT(u, 12*time.Second)
 	if err != nil {
 		return nil
 	}

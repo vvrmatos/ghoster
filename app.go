@@ -80,6 +80,7 @@ func (a *App) NewIdentity() string {
 	buf := make([]byte, 32)
 	rand.Read(buf)
 	a.sessionHash = hex.EncodeToString(buf)
+	search.ClearCache()
 	return a.sessionHash[:16]
 }
 
