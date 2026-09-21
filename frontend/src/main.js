@@ -592,7 +592,7 @@ function renderResults(tab) {
   if (!data) return;
   const rc = tab.el.querySelector(".m-results");
   const list = filtered(tab);
-  if (!list.length) { rc.innerHTML = '<div class="m-empty">nothing found — even ghosts have limits</div>'; return; }
+  if (!list.length) { rc.innerHTML = '<div class="m-empty">nothing found</div>'; return; }
 
   const pages = Math.max(1, Math.ceil(list.length / PAGE));
   if (data.page > pages) data.page = pages;
