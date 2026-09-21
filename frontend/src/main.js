@@ -330,18 +330,16 @@ async function doSearch(tab, query) {
   };
   tab.searchFilter = "all";
 
-  // Start all tiers together. The fast tier paints as soon as one useful
-  // engine answers; paged web and dark sources merge behind it without moving
-  // the first 20 already visible results.
-  const paged = SearchPage(query, 1);
-  const dark = SearchDarkPage(query, 1);
+  // The Wails bridge may serialize bound calls, so the fast tier must be sent
+  // first. Starting deep/dark calls before it can queue first paint behind the
+  // slowest onion request.
   try {
     const fast = await SearchFast(query);
     if (token !== tab.searchToken) return;
     tab.searchData.web = fast.web || [];
     tab.searchData.webHasMore = !!fast.hasMore;
     if (!tab.searchData.web.length) {
-      const fallback = await paged;
+      const fallback = await SearchPage(query, 1);
       if (token !== tab.searchToken) return;
       tab.searchData.web = fallback.web || [];
       tab.searchData.webHasMore = !!fallback.hasMore;
@@ -349,7 +347,7 @@ async function doSearch(tab, query) {
   } catch (e) {
     if (token !== tab.searchToken) return;
     try {
-      const fallback = await paged;
+      const fallback = await SearchPage(query, 1);
       if (token !== tab.searchToken) return;
       tab.searchData.web = fallback.web || [];
       tab.searchData.webHasMore = !!fallback.hasMore;
@@ -362,6 +360,9 @@ async function doSearch(tab, query) {
   if (ring) ring.classList.remove("searching");
   renderResults(tab);
 
+  // Deeper tiers begin only after the first result screen is visible.
+  const paged = SearchPage(query, 1);
+  const dark = SearchDarkPage(query, 1);
   paged.then((more) => {
     if (token !== tab.searchToken || !tab.searchData) return;
     tab.searchData.web = mergeResults(tab.searchData.web, more.web || []);
