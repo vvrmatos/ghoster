@@ -273,22 +273,33 @@ func clampPage(page int) int {
 	return page
 }
 
+// SearchFast returns the first useful first-page result set instead of waiting
+// for every engine. Brave, DuckDuckGo, and Mwmbl race in parallel; as soon as
+// at least 20 hits are available the UI can paint. The result is session-cached
+// so refresh remains stable.
+func SearchFast(query string) Results {
+	key := cacheKey("fast", query, 1)
+	return cachedCall(key,
+		func(r Results) bool { return len(r.Web) >= 10 },
+		func() Results {
+			web := firstUseful([]func() []Result{
+				func() []Result { return searchMwmbl(query) },
+				func() []Result { return searchBrave(query) },
+				func() []Result { return searchDDG(query) },
+			}, 4*time.Second, 20)
+			return Results{Query: query, Page: 1, Web: web, HasMore: len(web) >= 10}
+		})
+}
+
 func SearchPage(query string, page int) Results {
 	page = clampPage(page)
 	key := cacheKey("web", query, page)
 	return cachedCall(key,
-		func(r Results) bool { return len(r.Web) >= 20 || (page > 1 && len(r.Web) >= 8) },
+		func(r Results) bool { return len(r.Web) >= 8 },
 		func() Results {
 			jobs := []func() []Result{
 				func() []Result { return searchBing(query, 1+(page-1)*10) },
 				func() []Result { return searchMarginalia(query, page) },
-			}
-			if page == 1 {
-				jobs = append(jobs,
-					func() []Result { return searchBrave(query) },
-					func() []Result { return searchDDG(query) },
-					func() []Result { return searchMwmbl(query) },
-				)
 			}
 			web, more := waitAll(jobs)
 			return Results{Query: query, Page: page, Web: web, HasMore: more}
@@ -304,24 +315,39 @@ func SearchDarkPage(query string, page int) Results {
 		func() Results {
 			var onion, torrent []Result
 			var wg sync.WaitGroup
-			wg.Add(2)
-			go func() {
-				defer wg.Done()
-				lists := [][]Result{searchTordex(query, page)}
-				if page == 1 {
-					lists = append(lists, searchAhmia(query))
-				}
-				onion = interleave(lists)
-			}()
+			var tordex, ahmia []Result
+			jobs := 2
+			if page == 1 {
+				jobs++
+			}
+			wg.Add(jobs)
+			go func() { defer wg.Done(); tordex = searchTordex(query, page) }()
+			if page == 1 {
+				go func() { defer wg.Done(); ahmia = searchAhmia(query) }()
+			}
 			go func() { defer wg.Done(); torrent = btdiggPage(query, page-1) }()
 			wg.Wait()
+			onion = interleave([][]Result{tordex, ahmia})
 			more := len(onion) >= 8 || len(torrent) >= 8
 			return Results{Query: query, Page: page, Onion: onion, Torrent: torrent, HasMore: more}
 		})
 }
 
-// SearchWeb is page 1 of the clearnet engines (kept for older callers).
-func SearchWeb(query string) Results { return SearchPage(query, 1) }
+// SearchWeb aggregates both first-page tiers (kept for older callers).
+func SearchWeb(query string) Results {
+	var fast, paged Results
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() { defer wg.Done(); fast = SearchFast(query) }()
+	go func() { defer wg.Done(); paged = SearchPage(query, 1) }()
+	wg.Wait()
+	return Results{
+		Query:   query,
+		Page:    1,
+		Web:     interleave([][]Result{fast.Web, paged.Web}),
+		HasMore: fast.HasMore || paged.HasMore,
+	}
+}
 
 // SearchMore is page 2 of the clearnet engines (kept for older callers).
 func SearchMore(query string) Results { return SearchPage(query, 2) }
@@ -348,6 +374,31 @@ func waitAll(jobs []func() []Result) ([]Result, bool) {
 		}
 	}
 	return interleave(lists), more
+}
+
+func firstUseful(jobs []func() []Result, deadline time.Duration, minimum int) []Result {
+	results := make(chan []Result, len(jobs))
+	for _, job := range jobs {
+		go func(job func() []Result) { results <- job() }(job)
+	}
+	var lists [][]Result
+	timer := time.NewTimer(deadline)
+	defer timer.Stop()
+	for range jobs {
+		select {
+		case result := <-results:
+			if len(result) > 0 {
+				lists = append(lists, result)
+			}
+			merged := interleave(lists)
+			if len(merged) >= minimum {
+				return merged
+			}
+		case <-timer.C:
+			return interleave(lists)
+		}
+	}
+	return interleave(lists)
 }
 
 // SearchDark is page 1 of the dark sources (kept for older callers).

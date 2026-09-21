@@ -136,6 +136,11 @@ func (a *App) SearchPage(query string, page int) search.Results {
 	return search.SearchPage(query, page)
 }
 
+// SearchFast returns the first useful tier without waiting on every engine.
+func (a *App) SearchFast(query string) search.Results {
+	return search.SearchFast(query)
+}
+
 // SearchDarkPage returns one page of onion + torrent results. page is 1-based.
 func (a *App) SearchDarkPage(query string, page int) search.Results {
 	return search.SearchDarkPage(query, page)

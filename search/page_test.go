@@ -88,3 +88,26 @@ func TestCachedCallCoalescesConcurrentRefreshes(t *testing.T) {
 		t.Fatalf("load ran %d times, want exactly 1", got)
 	}
 }
+
+func TestFirstUsefulDoesNotWaitForSlowEngine(t *testing.T) {
+	start := time.Now()
+	got := firstUseful([]func() []Result{
+		func() []Result {
+			out := make([]Result, 20)
+			for i := range out {
+				out[i] = Result{URL: "https://fast.example/" + itoa(i)}
+			}
+			return out
+		},
+		func() []Result {
+			time.Sleep(250 * time.Millisecond)
+			return []Result{{URL: "https://slow.example"}}
+		},
+	}, time.Second, 20)
+	if len(got) != 20 {
+		t.Fatalf("got %d results, want 20", len(got))
+	}
+	if elapsed := time.Since(start); elapsed >= 200*time.Millisecond {
+		t.Fatalf("fast tier waited for slow engine: %s", elapsed)
+	}
+}

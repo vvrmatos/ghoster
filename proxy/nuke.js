@@ -168,7 +168,6 @@
 
   /* ── TRACKING SURFACE ── */
   try { def(window, "name", ""); } catch (e) {}
-  def(History.prototype, "length", 1);
   try { def(Document.prototype, "referrer", ""); } catch (e) {}
 
   /* ── ERROR STACK LEAK REDUCTION ── */

@@ -45,12 +45,14 @@ var stripHeaders = []string{
 
 // Proxy is the local sanitizing proxy.
 type Proxy struct {
-	mu       sync.RWMutex
-	mode     Mode
-	lang     string
-	dialer   proxy.Dialer
-	server   *http.Server
-	listener net.Listener
+	mu        sync.RWMutex
+	mode      Mode
+	lang      string
+	dialer    proxy.Dialer
+	transport *http.Transport
+	client    *http.Client
+	server    *http.Server
+	listener  net.Listener
 }
 
 // New creates a proxy that forwards through Tor.
@@ -62,10 +64,22 @@ func New() (*Proxy, error) {
 	if err != nil {
 		return nil, err
 	}
+	transport := &http.Transport{
+		Dial:                  dialer.Dial,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          128,
+		MaxIdleConnsPerHost:   16,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   15 * time.Second,
+		ResponseHeaderTimeout: 30 * time.Second,
+		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
+	}
 	return &Proxy{
-		mode:   Phantom,
-		lang:   "en-US,en;q=0.5",
-		dialer: dialer,
+		mode:      Phantom,
+		lang:      "en-US,en;q=0.5",
+		dialer:    dialer,
+		transport: transport,
+		client:    &http.Client{Transport: transport, Timeout: 45 * time.Second},
 	}, nil
 }
 
@@ -126,6 +140,9 @@ func (p *Proxy) Start(port string) error {
 
 // Stop shuts the proxy down.
 func (p *Proxy) Stop() error {
+	if p.transport != nil {
+		p.transport.CloseIdleConnections()
+	}
 	if p.server != nil {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 		defer cancel()
@@ -139,6 +156,10 @@ func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {
 	if r.URL.Path == "/browse" {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		p.serveBrowse(w, r)
+		return
+	}
+	if r.URL.Path == "/asset" {
+		p.serveAsset(w, r)
 		return
 	}
 	if r.Method == http.MethodConnect {
@@ -178,12 +199,6 @@ func (p *Proxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 // handleHTTP handles plain HTTP — strips headers and rewrites UA before forwarding.
 func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
-	transport := &http.Transport{
-		Dial:                p.dialer.Dial,
-		TLSClientConfig:     &tls.Config{MinVersion: tls.VersionTLS12},
-		TLSHandshakeTimeout: 15 * time.Second,
-	}
-
 	// Sanitize outgoing headers
 	for _, h := range stripHeaders {
 		r.Header.Del(h)
@@ -203,7 +218,7 @@ func (p *Proxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 		r.URL.Host = r.Host
 	}
 
-	resp, err := transport.RoundTrip(r)
+	resp, err := p.transport.RoundTrip(r)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return

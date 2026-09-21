@@ -30,6 +30,10 @@ export function SearchDarkPage(arg1, arg2) {
   return window['go']['main']['App']['SearchDarkPage'](arg1, arg2);
 }
 
+export function SearchFast(arg1) {
+  return window['go']['main']['App']['SearchFast'](arg1);
+}
+
 export function SearchMore(arg1) {
   return window['go']['main']['App']['SearchMore'](arg1);
 }

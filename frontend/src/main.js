@@ -1,18 +1,26 @@
 import "./style.css";
 import iconUrl from "./assets/images/icon.png";
+import { recordHistory, stepHistory } from "./history.js";
 import {
   TorStatus, SessionHash, VerifyIntegrity, SetMode, NewIdentity,
-  Countries, SetCountry, GetGeo, SearchPage, SearchDarkPage,
+  Countries, SetCountry, GetGeo, SearchFast, SearchPage, SearchDarkPage, ProxyAddr,
 } from "../wailsjs/go/main/App";
 
-const PROXY = "http://127.0.0.1:8888";
+let PROXY = "http://127.0.0.1:8888";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const esc = (s) => (s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
 // ── BOOT ──
 async function boot() {
+  const proxyAddr = await ProxyAddr();
   document.getElementById("splash-logo").src = iconUrl;
   document.getElementById("ghost-icon").src = iconUrl;
+  if (!proxyAddr) {
+    document.getElementById("splash-status").textContent = "local gateway offline";
+    document.getElementById("splash-bar").style.background = "var(--red)";
+    return;
+  }
+  PROXY = "http://" + proxyAddr;
   const hash = await SessionHash();
   document.getElementById("splash-hash").textContent = "sha:" + hash.slice(0, 16);
   document.getElementById("splash-bar").style.width = "40%";
@@ -57,6 +65,8 @@ function newTab(url) {
   const tab = {
     id, title: "ghoster", url: url || "", isMemento: !url,
     searchData: null, searchFilter: "all", searchToken: 0,
+    history: url ? [url] : [], historyIndex: url ? 0 : -1,
+    pendingURL: url || "",
   };
 
   if (tab.isMemento) {
@@ -114,6 +124,41 @@ function renderTabs() {
 
 function activeTab() { return tabs.find((t) => t.id === activeId); }
 
+// Browsed documents run on the local proxy origin, so they report their
+// logical remote URL/title with postMessage. This keeps chrome synchronized
+// after link clicks, redirects, back, and forward.
+window.addEventListener("message", (event) => {
+  const data = event.data;
+  if (!data) return;
+  const tab = tabs.find((t) => t.el.tagName === "IFRAME" && t.el.contentWindow === event.source);
+  if (!tab) return;
+  if (data.type === "ghoster-key") {
+    const key = (data.key || "").toLowerCase();
+    const code = data.code || "";
+    if (key === "r" || code === "KeyR") refreshActive();
+    else if (key === "l" || code === "KeyL") { urlInput.focus(); urlInput.select(); }
+    else if (key === "t" || code === "KeyT") newTab();
+    else if (key === "w" || code === "KeyW") closeTab(tab.id);
+    else if (data.key === "[" || code === "BracketLeft" || (data.altKey && data.key === "ArrowLeft")) goBack();
+    else if (data.key === "]" || code === "BracketRight" || (data.altKey && data.key === "ArrowRight")) goForward();
+    return;
+  }
+  if (data.type !== "ghoster-nav" || !/^https?:\/\//.test(data.url || "")) return;
+  if (tab.pendingURL) {
+    if (data.url !== tab.pendingURL && tab.historyIndex >= 0) {
+      // A redirect replaces the requested entry instead of adding a loop.
+      tab.history[tab.historyIndex] = data.url;
+    }
+    tab.pendingURL = "";
+  } else if (data.url !== tab.url) {
+    recordHistory(tab, data.url);
+  }
+  tab.url = data.url;
+  if (data.title) tab.title = data.title;
+  if (tab.id === activeId) urlInput.value = tab.url;
+  renderTabs();
+});
+
 function navigate(input) {
   const t = activeTab();
   if (!t) return;
@@ -128,10 +173,12 @@ function navigate(input) {
   loadURL(t, url);
 }
 
-function loadURL(t, url) {
+function loadURL(t, url, record = true) {
   startLoad();
   t.searchToken++;
   t.searchData = null;
+  if (record) recordHistory(t, url);
+  t.pendingURL = url;
   t.isMemento = false; t.url = url; t.title = new URL(url).hostname;
   if (t.el.tagName !== "IFRAME") {
     const f = document.createElement("iframe");
@@ -149,6 +196,7 @@ function loadMemento(t) {
   t.searchToken++;
   t.searchData = null;
   t.searchFilter = "all";
+  t.pendingURL = "";
   t.isMemento = true; t.url = ""; t.title = "ghoster";
   const div = document.createElement("div");
   div.className = "memento-view active-view"; div.id = t.id;
@@ -282,27 +330,52 @@ async function doSearch(tab, query) {
   };
   tab.searchFilter = "all";
 
-  // Web results are the critical path. Dark sources are independent and must
-  // never make the ordinary search screen wait for an onion timeout.
+  // Start all tiers together. The fast tier paints as soon as one useful
+  // engine answers; paged web and dark sources merge behind it without moving
+  // the first 20 already visible results.
+  const paged = SearchPage(query, 1);
+  const dark = SearchDarkPage(query, 1);
   try {
-    const web = await SearchPage(query, 1);
+    const fast = await SearchFast(query);
     if (token !== tab.searchToken) return;
-    tab.searchData.web = web.web || [];
-    tab.searchData.webHasMore = !!web.hasMore;
+    tab.searchData.web = fast.web || [];
+    tab.searchData.webHasMore = !!fast.hasMore;
+    if (!tab.searchData.web.length) {
+      const fallback = await paged;
+      if (token !== tab.searchToken) return;
+      tab.searchData.web = fallback.web || [];
+      tab.searchData.webHasMore = !!fallback.hasMore;
+    }
   } catch (e) {
     if (token !== tab.searchToken) return;
-    tab.searchData.webHasMore = false;
+    try {
+      const fallback = await paged;
+      if (token !== tab.searchToken) return;
+      tab.searchData.web = fallback.web || [];
+      tab.searchData.webHasMore = !!fallback.hasMore;
+    } catch (_) {
+      tab.searchData.webHasMore = false;
+    }
   }
   if (token !== tab.searchToken) return;
   tab.searchData.loading = false;
   if (ring) ring.classList.remove("searching");
   renderResults(tab);
 
-  SearchDarkPage(query, 1).then((dark) => {
+  paged.then((more) => {
     if (token !== tab.searchToken || !tab.searchData) return;
-    tab.searchData.onion = dark.onion || [];
-    tab.searchData.torrent = dark.torrent || [];
-    tab.searchData.darkHasMore = !!dark.hasMore;
+    tab.searchData.web = mergeResults(tab.searchData.web, more.web || []);
+    tab.searchData.webHasMore = tab.searchData.webHasMore || !!more.hasMore;
+    if (activeTab() === tab) renderResults(tab);
+    // Warm the next web page so the first Next click is normally a cache hit.
+    SearchPage(query, 2).catch(() => {});
+  }).catch(() => {});
+
+  dark.then((darkResults) => {
+    if (token !== tab.searchToken || !tab.searchData) return;
+    tab.searchData.onion = darkResults.onion || [];
+    tab.searchData.torrent = darkResults.torrent || [];
+    tab.searchData.darkHasMore = !!darkResults.hasMore;
     if (activeTab() === tab) renderResults(tab);
   }).catch(() => {
     if (token === tab.searchToken && tab.searchData) tab.searchData.darkHasMore = false;
@@ -447,8 +520,20 @@ function renderCountries(filter) {
 }
 
 // ── TOOLBAR + PANELS ──
-document.getElementById("btn-back").addEventListener("click", () => { const t = activeTab(); if (t && t.el.tagName === "IFRAME") t.el.contentWindow.history.back(); });
-document.getElementById("btn-fwd").addEventListener("click", () => { const t = activeTab(); if (t && t.el.tagName === "IFRAME") t.el.contentWindow.history.forward(); });
+function goBack() {
+  const t = activeTab();
+  if (!t || t.el.tagName !== "IFRAME") return;
+  const url = stepHistory(t, -1);
+  if (url) loadURL(t, url, false);
+}
+function goForward() {
+  const t = activeTab();
+  if (!t || t.el.tagName !== "IFRAME") return;
+  const url = stepHistory(t, 1);
+  if (url) loadURL(t, url, false);
+}
+document.getElementById("btn-back").addEventListener("click", goBack);
+document.getElementById("btn-fwd").addEventListener("click", goForward);
 function refreshActive() {
   const t = activeTab();
   if (!t) return;
@@ -459,14 +544,19 @@ function refreshActive() {
     return;
   }
   startLoad();
-  t.el.src = t.el.src;
+  t.pendingURL = t.url;
+  t.el.src = PROXY + "/browse?url=" + encodeURIComponent(t.url);
 }
 document.getElementById("btn-reload").addEventListener("click", refreshActive);
 document.addEventListener("keydown", (e) => {
-  if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "r") {
-    e.preventDefault();
-    refreshActive();
-  }
+  const mod = e.metaKey || e.ctrlKey;
+  const key = e.key.toLowerCase();
+  if (mod && key === "r") { e.preventDefault(); refreshActive(); }
+  else if (mod && key === "l") { e.preventDefault(); urlInput.focus(); urlInput.select(); }
+  else if (mod && key === "t") { e.preventDefault(); newTab(); }
+  else if (mod && key === "w") { e.preventDefault(); if (activeId) closeTab(activeId); }
+  else if ((mod && e.key === "[") || (e.altKey && e.key === "ArrowLeft")) { e.preventDefault(); goBack(); }
+  else if ((mod && e.key === "]") || (e.altKey && e.key === "ArrowRight")) { e.preventDefault(); goForward(); }
 });
 document.getElementById("btn-home").addEventListener("click", () => { const t = activeTab(); if (t) loadMemento(t); });
 document.getElementById("btn-new-tab").addEventListener("click", () => newTab());

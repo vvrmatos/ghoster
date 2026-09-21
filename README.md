@@ -37,27 +37,31 @@ page ever sees you.
 
 ```
 WebKit webview (Wails)
-      │  iframe → http://127.0.0.1:8888/browse?url=...
+      │  page → /browse?url=...  resources → /asset?url=...
       ▼
-Go sanitizing proxy  ─── strips Client Hints, X-Frame-Options, cookies
-      │                  rewrites User-Agent (phantom/stealth)
-      │                  injects nuke.js fingerprint poison
+Pooled Go gateway  ─── strips Client Hints, X-Frame-Options, cookies
+      │                rewrites navigation + CSS resource URLs
+      │                syncs address/title with postMessage
+      │                injects nuke.js fingerprint poison
       ▼
 Tor SOCKS5 (127.0.0.1:9050)
       ▼
    internet
 ```
 
-The proxy also strips `X-Frame-Options` and CSP so pages render in-app, and rewrites
-every link so navigation can never escape the proxy and hit the network directly.
+The gateway follows redirects, strips `X-Frame-Options` and CSP, rewrites links,
+forms, frames, media, scripts, stylesheets, `srcset`, CSS `url()` and meta-refresh
+targets to absolute local gateway URLs, and reports the logical URL/title back to
+the browser chrome after navigation. Its shared transport reuses Tor connections
+instead of building a new transport for every resource.
 
 ## memento
 
 One query, three worlds. The UI shows **20 results per page** with prev / next.
-Clicking next fetches the next page from the engines that paginate (Bing,
-Marginalia, TorDex, BTDigg). Page 1 waits for every engine — there is no
-deadline that silently drops a source, which is what made the result count
-jump on every search.
+The fast tier races Mwmbl, Brave, and DuckDuckGo and paints as soon as 20 useful
+hits arrive; Bing and Marginalia merge behind it without moving those first 20.
+Dark sources load independently. Clicking next fetches further Bing, Marginalia,
+TorDex, and BTDigg pages until the visible page is full or the sources end.
 
 Successful pages live in a **15-minute memory-only cache**. Refreshing the same
 query therefore gives the same ordering and result set immediately instead of
@@ -79,6 +83,16 @@ web results and cannot delay the first page.
 
 A 429 or 403 from any engine is retried on a **fresh circuit** rather than reported as
 "no results". Sponsored slots are dropped, never rendered as hits.
+
+## Navigation
+
+| Shortcut | Action |
+|---|---|
+| `Cmd/Ctrl+L` | focus and select the address bar |
+| `Cmd/Ctrl+R` | reload the current page or rerun the current search |
+| `Cmd/Ctrl+T` | new tab |
+| `Cmd/Ctrl+W` | close tab |
+| `Cmd+[ / Cmd+]` or `Alt+← / Alt+→` | back / forward |
 
 ## Identity
 
