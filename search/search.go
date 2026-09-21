@@ -39,6 +39,8 @@ type Results struct {
 	Onion   []Result `json:"onion"`
 	Torrent []Result `json:"torrent"`
 	Query   string   `json:"query"`
+	Page    int      `json:"page"`
+	HasMore bool     `json:"hasMore"`
 }
 
 // circuit returns a random SOCKS credential. Tor's IsolateSOCKSAuth (on by
@@ -160,82 +162,89 @@ func interleave(lists [][]Result) []Result {
 	}
 }
 
-// SearchWeb returns only clearnet results — fast, so the UI can render instantly.
-// Every engine runs in parallel over its own Tor circuit; results are merged
-// round-robin and deduped so one engine going down never empties the page.
-func SearchWeb(query string) Results {
-	// Whatever has answered within the deadline is shown; a slow engine is not
-	// lost, it is simply picked up again by the deep sweep.
-	return Results{Query: query, Web: run([]func() []Result{
-		func() []Result { return searchBrave(query) },
-		func() []Result { return searchDDG(query) },
-		func() []Result { return searchBing(query, 1) },
-		func() []Result { return searchMwmbl(query) },
-	}, 9*time.Second)}
+// SearchPage fetches one page of clearnet results. Page 1 hits every engine
+// that does not paginate (Brave, DuckDuckGo, Mwmbl) plus the first Bing and
+// Marginalia pages. Later pages walk Bing (10 hits each) and Marginalia.
+//
+// Every job is waited on — there is no deadline that silently drops an engine,
+// which is what made the result count jump from 25 to 70 to 197 on the same
+// query. Each fetch still has its own timeout and circuit retries.
+func clampPage(page int) int {
+	if page < 1 {
+		return 1
+	}
+	return page
 }
 
-// SearchMore is the deep sweep: further pages of the engines that paginate over
-// Tor. It runs after SearchWeb so the first screen is not held back by it.
-func SearchMore(query string) Results {
+func SearchPage(query string, page int) Results {
+	page = clampPage(page)
 	jobs := []func() []Result{
-		// repeated in case they missed the fast pass deadline
-		func() []Result { return searchBrave(query) },
-		func() []Result { return searchMwmbl(query) },
-		func() []Result { return searchMarginalia(query, 1) },
-		func() []Result { return searchMarginalia(query, 2) },
-		func() []Result { return searchMarginalia(query, 3) },
+		func() []Result { return searchBing(query, 1+(page-1)*10) },
+		func() []Result { return searchMarginalia(query, page) },
 	}
-	for _, first := range []int{11, 21, 31, 41, 51, 61, 71, 81} {
-		first := first
-		jobs = append(jobs, func() []Result { return searchBing(query, first) })
+	if page == 1 {
+		jobs = append(jobs,
+			func() []Result { return searchBrave(query) },
+			func() []Result { return searchDDG(query) },
+			func() []Result { return searchMwmbl(query) },
+		)
 	}
-	return Results{Query: query, Web: run(jobs, 45*time.Second)}
+	web, more := waitAll(jobs)
+	return Results{Query: query, Page: page, Web: web, HasMore: more}
 }
 
-// run executes every source in parallel, each on its own circuit, and merges
-// the lists round-robin so the page is never dominated by one engine. Sources
-// still running at the deadline are abandoned rather than holding up the page.
-func run(jobs []func() []Result, deadline time.Duration) []Result {
+// SearchDarkPage fetches one page of onion + torrent results.
+func SearchDarkPage(query string, page int) Results {
+	page = clampPage(page)
+	var onion, torrent []Result
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		lists := [][]Result{searchTordex(query, page)}
+		if page == 1 {
+			lists = append(lists, searchAhmia(query))
+		}
+		onion = interleave(lists)
+	}()
+	go func() { defer wg.Done(); torrent = btdiggPage(query, page-1) }()
+	wg.Wait()
+	more := len(onion) >= 8 || len(torrent) >= 8
+	return Results{Query: query, Page: page, Onion: onion, Torrent: torrent, HasMore: more}
+}
+
+// SearchWeb is page 1 of the clearnet engines (kept for older callers).
+func SearchWeb(query string) Results { return SearchPage(query, 1) }
+
+// SearchMore is page 2 of the clearnet engines (kept for older callers).
+func SearchMore(query string) Results { return SearchPage(query, 2) }
+
+// waitAll runs every job to completion and merges the lists. hasMore is true
+// when at least one engine returned a full-looking page, so the UI can offer
+// a Next button instead of guessing.
+func waitAll(jobs []func() []Result) ([]Result, bool) {
 	lists := make([][]Result, len(jobs))
-	done := make(chan int, len(jobs))
+	var wg sync.WaitGroup
+	wg.Add(len(jobs))
 	for i, job := range jobs {
 		go func(i int, job func() []Result) {
+			defer wg.Done()
 			lists[i] = job()
-			done <- i
 		}(i, job)
 	}
-
-	ready := make([][]Result, 0, len(jobs))
-	timeout := time.After(deadline)
-	for range jobs {
-		select {
-		case i := <-done:
-			if len(lists[i]) > 0 {
-				ready = append(ready, lists[i])
-			}
-		case <-timeout:
-			return capResults(interleave(ready), 300)
+	wg.Wait()
+	more := false
+	for _, l := range lists {
+		if len(l) >= 8 {
+			more = true
+			break
 		}
 	}
-	return capResults(interleave(ready), 300)
+	return interleave(lists), more
 }
 
-// SearchDark returns onion + torrent results (slower; fetched after web).
-// Two onion indexes are queried because either one can be down — Ahmia's
-// backend 504s for hours at a time.
-func SearchDark(query string) Results {
-	out := Results{Query: query}
-	onion := make([][]Result, 3)
-	var wg sync.WaitGroup
-	wg.Add(4)
-	go func() { defer wg.Done(); onion[0] = searchTordex(query, 1) }()
-	go func() { defer wg.Done(); onion[1] = searchTordex(query, 2) }()
-	go func() { defer wg.Done(); onion[2] = searchAhmia(query) }()
-	go func() { defer wg.Done(); out.Torrent = searchBTDigg(query) }()
-	wg.Wait()
-	out.Onion = capResults(interleave(onion), 60)
-	return out
-}
+// SearchDark is page 1 of the dark sources (kept for older callers).
+func SearchDark(query string) Results { return SearchDarkPage(query, 1) }
 
 // Search runs all sources (kept for compatibility).
 func Search(query string) Results {

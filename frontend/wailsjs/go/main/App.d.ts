@@ -14,7 +14,11 @@ export function Search(arg1:string):Promise<search.Results>;
 
 export function SearchDark(arg1:string):Promise<search.Results>;
 
+export function SearchDarkPage(arg1:string,arg2:number):Promise<search.Results>;
+
 export function SearchMore(arg1:string):Promise<search.Results>;
+
+export function SearchPage(arg1:string,arg2:number):Promise<search.Results>;
 
 export function SearchWeb(arg1:string):Promise<search.Results>;
 

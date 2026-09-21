@@ -49,6 +49,8 @@ export namespace search {
 	    onion: Result[];
 	    torrent: Result[];
 	    query: string;
+	    page: number;
+	    hasMore: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Results(source);
@@ -60,6 +62,8 @@ export namespace search {
 	        this.onion = this.convertValues(source["onion"], Result);
 	        this.torrent = this.convertValues(source["torrent"], Result);
 	        this.query = source["query"];
+	        this.page = source["page"];
+	        this.hasMore = source["hasMore"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {

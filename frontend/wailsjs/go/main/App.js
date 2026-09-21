@@ -26,8 +26,16 @@ export function SearchDark(arg1) {
   return window['go']['main']['App']['SearchDark'](arg1);
 }
 
+export function SearchDarkPage(arg1, arg2) {
+  return window['go']['main']['App']['SearchDarkPage'](arg1, arg2);
+}
+
 export function SearchMore(arg1) {
   return window['go']['main']['App']['SearchMore'](arg1);
+}
+
+export function SearchPage(arg1, arg2) {
+  return window['go']['main']['App']['SearchPage'](arg1, arg2);
 }
 
 export function SearchWeb(arg1) {

@@ -130,6 +130,16 @@ func (a *App) SearchMore(query string) search.Results {
 	return search.SearchMore(query)
 }
 
+// SearchPage returns one page of clearnet results. page is 1-based.
+func (a *App) SearchPage(query string, page int) search.Results {
+	return search.SearchPage(query, page)
+}
+
+// SearchDarkPage returns one page of onion + torrent results. page is 1-based.
+func (a *App) SearchDarkPage(query string, page int) search.Results {
+	return search.SearchDarkPage(query, page)
+}
+
 // SearchDark returns onion + torrent results (fetched after web).
 func (a *App) SearchDark(query string) search.Results {
 	return search.SearchDark(query)

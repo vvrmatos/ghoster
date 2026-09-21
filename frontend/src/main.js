@@ -2,7 +2,7 @@ import "./style.css";
 import iconUrl from "./assets/images/icon.png";
 import {
   TorStatus, SessionHash, VerifyIntegrity, SetMode, NewIdentity,
-  Countries, SetCountry, GetGeo, SearchWeb, SearchMore, SearchDark,
+  Countries, SetCountry, GetGeo, SearchPage, SearchDarkPage,
 } from "../wailsjs/go/main/App";
 
 const PROXY = "http://127.0.0.1:8888";
@@ -213,6 +213,12 @@ function mementoHTML() {
     .m-title:hover{text-decoration:underline;}
     .m-snip{font-size:13px;color:#5a5a6e;line-height:1.5;}
     .m-load,.m-empty{text-align:center;padding:50px;color:#5a5a6e;font-size:13px;}
+    .m-pager{display:flex;align-items:center;justify-content:center;gap:14px;margin:28px 0 8px;}
+    .m-page{background:#0e0e14;border:1px solid #252535;color:#d0d0dc;border-radius:8px;padding:8px 18px;font-size:12px;letter-spacing:1px;cursor:pointer;}
+    .m-page:disabled{opacity:.25;cursor:default;}
+    .m-page:not(:disabled):hover{border-color:#8b7cf6;color:#fff;}
+    .m-page-n{font-size:12px;color:#5a5a6e;letter-spacing:3px;}
+    .m-range{text-align:center;font-size:11px;color:#5a5a6e;letter-spacing:1px;margin-bottom:8px;}
   </style>`;
 }
 
@@ -234,7 +240,17 @@ function searchInTab(t, q) {
   doSearch(tab, q);
 }
 
+const PAGE = 20;
 let lastData = null, curFilter = "all";
+
+function filtered(data) {
+  const web = data.web || [], onion = data.onion || [], torrent = data.torrent || [];
+  if (curFilter === "web") return web;
+  if (curFilter === "onion") return onion;
+  if (curFilter === "torrent") return torrent;
+  return [...web, ...onion, ...torrent];
+}
+
 async function doSearch(tab, query) {
   if (!query.trim()) return;
   const root = tab.el;
@@ -245,26 +261,22 @@ async function doSearch(tab, query) {
   rc.innerHTML = '<div class="m-load">searching…</div>';
   tab.title = query;
   renderTabs();
+  const box = root.querySelector(".m-input");
+  if (box) box.value = query;
 
-  // Fast engines first, then the deep pages and the dark sources stream in.
-  const web = await SearchWeb(query);
-  lastData = { web: web.web || [], onion: [], torrent: [], query };
+  lastData = { web: [], onion: [], torrent: [], query, page: 1, enginePage: 1, hasMore: true };
   curFilter = "all";
-  renderResults(tab, lastData, true);
-
-  let pending = 2;
-  const done = () => { if (--pending === 0 && ring) ring.classList.remove("searching"); };
-
-  SearchMore(query).then((more) => {
-    lastData.web = mergeResults(lastData.web, more.web || []);
-    if (activeTab() === tab) renderResults(tab, lastData, pending > 1);
-  }).catch(() => {}).finally(done);
-
-  SearchDark(query).then((dark) => {
+  try {
+    const [web, dark] = await Promise.all([SearchPage(query, 1), SearchDarkPage(query, 1)]);
+    lastData.web = web.web || [];
     lastData.onion = dark.onion || [];
     lastData.torrent = dark.torrent || [];
-    if (activeTab() === tab) renderResults(tab, lastData, pending > 1);
-  }).catch(() => {}).finally(done);
+    lastData.hasMore = !!(web.hasMore || dark.hasMore);
+  } catch (e) {
+    lastData.hasMore = false;
+  }
+  if (ring) ring.classList.remove("searching");
+  renderResults(tab);
 }
 
 // mergeResults appends new hits, skipping URLs already on screen.
@@ -280,25 +292,69 @@ function mergeResults(current, extra) {
   return current;
 }
 
-function renderResults(tab, data, darkPending) {
-  const rc = tab.el.querySelector(".m-results");
-  const web = data.web || [], onion = data.onion || [], torrent = data.torrent || [];
-  const total = web.length + onion.length + torrent.length;
-  if (!total) { rc.innerHTML = '<div class="m-empty">nothing found — even ghosts have limits</div>'; return; }
+async function goPage(tab, dir) {
+  if (!lastData) return;
+  const next = lastData.page + dir;
+  if (next < 1) return;
+  const list = filtered(lastData);
+  const need = next * PAGE;
+  if (list.length < need && lastData.hasMore) {
+    const ring = tab.el.querySelector(".m-logo-wrap");
+    if (ring) ring.classList.add("searching");
+    lastData.enginePage += 1;
+    try {
+      const [web, dark] = await Promise.all([
+        SearchPage(lastData.query, lastData.enginePage),
+        SearchDarkPage(lastData.query, lastData.enginePage),
+      ]);
+      lastData.web = mergeResults(lastData.web, web.web || []);
+      lastData.onion = mergeResults(lastData.onion, dark.onion || []);
+      lastData.torrent = mergeResults(lastData.torrent, dark.torrent || []);
+      lastData.hasMore = !!(web.hasMore || dark.hasMore);
+    } catch (e) {
+      lastData.hasMore = false;
+    }
+    if (ring) ring.classList.remove("searching");
+  }
+  const have = filtered(lastData).length;
+  if (dir > 0 && have <= (lastData.page - 1) * PAGE && !lastData.hasMore) return;
+  if (next > Math.ceil(have / PAGE) && !lastData.hasMore) return;
+  lastData.page = next;
+  renderResults(tab);
+}
 
-  let list = curFilter === "web" ? web : curFilter === "onion" ? onion : curFilter === "torrent" ? torrent : [...web, ...onion, ...torrent];
-  const pending = darkPending ? " …" : "";
+function renderResults(tab) {
+  const data = lastData;
+  const rc = tab.el.querySelector(".m-results");
+  const list = filtered(data);
+  if (!list.length) { rc.innerHTML = '<div class="m-empty">nothing found — even ghosts have limits</div>'; return; }
+
+  const pages = Math.max(1, Math.ceil(list.length / PAGE));
+  if (data.page > pages) data.page = pages;
+  const from = (data.page - 1) * PAGE;
+  const slice = list.slice(from, from + PAGE);
+  const to = from + slice.length;
+  const more = data.hasMore ? "+" : "";
+  const canPrev = data.page > 1;
+  const canNext = data.page < pages || data.hasMore;
+
   let h = '<div class="m-tabs">';
-  h += stab("all", "all (" + total + pending + ")") + stab("web", "◈ web (" + web.length + pending + ")") + stab("onion", "▣ onion (" + (onion.length || 0) + pending + ")") + stab("torrent", "▾ torrents (" + (torrent.length || 0) + pending + ")");
+  h += stab("all", "all") + stab("web", "◈ web") + stab("onion", "▣ onion") + stab("torrent", "▾ torrents");
   h += "</div>";
-  for (const r of list) {
+  h += `<div class="m-range">${from + 1}–${to} of ${list.length}${more}</div>`;
+  for (const r of slice) {
     const b = r.source === "onion" ? "b-onion" : r.source === "torrent" ? "b-torrent" : "b-web";
     let disp = r.url;
     try { if (r.source !== "torrent") disp = new URL(r.url).hostname; else disp = "magnet"; } catch {}
     h += `<div class="m-res"><div class="m-url"><span class="m-badge ${b}">${r.source}</span>${esc(disp)}</div><a class="m-title" data-url="${esc(r.url)}" data-src="${r.source}">${esc(r.title)}</a>${r.snippet ? `<div class="m-snip">${esc(r.snippet)}</div>` : ""}</div>`;
   }
+  h += `<div class="m-pager"><button class="m-page" id="m-prev" ${canPrev ? "" : "disabled"}>← prev</button><span class="m-page-n">page ${data.page}</span><button class="m-page" id="m-next" ${canNext ? "" : "disabled"}>next →</button></div>`;
   rc.innerHTML = h;
-  rc.querySelectorAll(".m-stab").forEach((t) => t.addEventListener("click", () => { curFilter = t.dataset.src; renderResults(tab, lastData, false); }));
+  rc.querySelectorAll(".m-stab").forEach((t) => t.addEventListener("click", () => { curFilter = t.dataset.src; lastData.page = 1; renderResults(tab); }));
+  const prev = rc.querySelector("#m-prev");
+  const next = rc.querySelector("#m-next");
+  if (prev) prev.addEventListener("click", () => goPage(tab, -1));
+  if (next) next.addEventListener("click", () => goPage(tab, 1));
   rc.querySelectorAll(".m-title").forEach((a) => a.addEventListener("click", () => {
     const url = a.dataset.url;
     if (a.dataset.src === "torrent") { window.runtime && window.runtime.BrowserOpenURL(url); }

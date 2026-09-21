@@ -53,19 +53,22 @@ every link so navigation can never escape the proxy and hit the network directly
 
 ## memento
 
-One query, three worlds. Search sources run in parallel, each on **its own Tor
-circuit** (via SOCKS credential isolation), so the engines never share an exit IP and
-cannot rate-limit each other. Results are merged round-robin and deduplicated, so a
-dead engine thins the list instead of emptying it.
+One query, three worlds. The UI shows **20 results per page** with prev / next.
+Clicking next fetches the next page from the engines that paginate (Bing,
+Marginalia, TorDex, BTDigg). Page 1 waits for every engine — there is no
+deadline that silently drops a source, which is what made the result count
+jump on every search.
 
 | Source | Index | Notes |
 |---|---|---|
-| Brave | clear web | ~20 results per query |
+| Brave | clear web | ~20 results, first page only (further offsets 429 over Tor) |
 | DuckDuckGo | clear web | ~10 per query; pagination is blocked over Tor |
-| Marginalia | clear web | independent crawler, 2 pages fetched — surfaces the small web |
-| TorDex | onion | ~50 per page, 2 pages fetched |
-| Ahmia | onion | used when its backend is reachable |
-| BTDigg | torrents | magnet links, 3 pages fetched |
+| Bing | clear web | 10 per page, walks `&first=` on each Next |
+| Mwmbl | clear web | independent JSON index, first page |
+| Marginalia | clear web | independent crawler, one page per Next |
+| TorDex | onion | ~50 per page, one page per Next |
+| Ahmia | onion | first page, when its backend is reachable |
+| BTDigg | torrents | 10 magnets per page, one page per Next |
 
 A 429 or 403 from any engine is retried on a **fresh circuit** rather than reported as
 "no results". Sponsored slots are dropped, never rendered as hits.
