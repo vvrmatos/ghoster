@@ -107,6 +107,9 @@ jobs:
       - name: Install pinned Wails CLI
         run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
 
+      - name: Test native menu accelerators
+        run: go test -count=1 .
+
       - name: Build packaged app
         run: |
           "$(go env GOPATH)/bin/wails" build

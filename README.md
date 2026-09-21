@@ -92,8 +92,17 @@ A 429 or 403 from any engine is retried on a **fresh circuit** rather than repor
 | `Cmd/Ctrl+L` | focus and select the address bar |
 | `Cmd/Ctrl+R` | reload the current page or rerun the current search |
 | `Cmd/Ctrl+T` | new tab |
+| `Cmd/Ctrl+Shift+T` | reopen the last closed tab |
 | `Cmd/Ctrl+W` | close tab |
+| `Cmd/Ctrl+1…8` | switch to a numbered tab |
+| `Cmd/Ctrl+9` | switch to the last tab |
+| `Ctrl+Tab / Ctrl+Shift+Tab` | cycle tabs forward / backward |
 | `Cmd+[ / Cmd+]` or `Alt+← / Alt+→` | back / forward |
+
+Cmd/Ctrl-click and middle-click open links in a background Ghoster tab;
+`target=_blank` and `window.open()` open a foreground Ghoster tab instead of an
+external browser. Right-click provides link open/copy, selection copy,
+back/forward/reload, duplicate tab, copy page address, new/reopen/close tab actions.
 
 ## Identity and JavaScript
 

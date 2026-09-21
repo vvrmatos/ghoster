@@ -26,7 +26,7 @@ func TestBrowseGatewayDefaultOffEndToEnd(t *testing.T) {
 			fmt.Fprint(w, `<!doctype html><html><head><title>Final page</title>
 				<script src="/site.js"></script><script>window.siteRan=true</script>
 				<link rel="stylesheet" href="/site.css"></head>
-				<body onload="window.loaded=true"><a href="/next">next</a>
+				<body onload="window.loaded=true"><a href="/next" target="_blank">next</a>
 				<img src="/pixel.png"></body></html>`)
 		default:
 			http.NotFound(w, r)
@@ -56,6 +56,7 @@ func TestBrowseGatewayDefaultOffEndToEnd(t *testing.T) {
 		`<base href="` + upstream.URL + `/final">`,
 		`http://127.0.0.1:8888/browse?js=0&amp;url=`,
 		`http://127.0.0.1:8888/asset?url=`,
+		`data-ghoster-newtab="1"`,
 	} {
 		if !strings.Contains(body, required) {
 			t.Fatalf("gateway response missing %q: %s", required, body)

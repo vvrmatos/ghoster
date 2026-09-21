@@ -1,6 +1,8 @@
 import "./style.css";
 import iconUrl from "./assets/images/icon-ui.png";
 import { recordHistory, stepHistory } from "./history.js";
+import { nextTabIndex, numberedTabIndex, rememberClosed } from "./tab-actions.js";
+import { ClipboardSetText, EventsOn } from "../wailsjs/runtime/runtime.js";
 import {
   TorStatus, SessionHash, VerifyIntegrity, NewIdentity,
   Countries, SetCountry, GetGeo, SearchFast, SearchPage, SearchDarkPage, ProxyAddr,
@@ -58,15 +60,16 @@ const viewContainer = document.getElementById("view-container");
 const tabsEl = document.getElementById("tabs");
 const urlInput = document.getElementById("url");
 const statusText = document.getElementById("status-text");
-let tabs = [], activeId = null, counter = 0;
+let tabs = [], closedTabs = [], activeId = null, counter = 0;
 
-function newTab(url) {
+function newTab(url, options = {}) {
+  const { activate = true, jsEnabled = false } = options;
   const id = "t" + (++counter);
   const tab = {
     id, title: "ghoster", url: url || "", isMemento: !url,
     searchData: null, searchFilter: "all", searchToken: 0,
     history: url ? [url] : [], historyIndex: url ? 0 : -1,
-    pendingURL: url || "", jsEnabled: false,
+    pendingURL: url || "", jsEnabled,
   };
 
   if (tab.isMemento) {
@@ -85,7 +88,7 @@ function newTab(url) {
     tab.el = f;
   }
   tabs.push(tab);
-  switchTab(id);
+  if (activate) switchTab(id);
   renderTabs();
   if (tab.isMemento) wireMemento(tab);
   return tab;
@@ -100,15 +103,51 @@ function switchTab(id) {
   renderTabs();
 }
 
-function closeTab(id) {
+function closeTab(id, remember = true) {
   const i = tabs.findIndex((t) => t.id === id);
   if (i === -1) return;
+  const closing = tabs[i];
+  if (remember) {
+    rememberClosed(closedTabs, {
+      url: closing.url,
+      query: closing.searchData?.query || "",
+      jsEnabled: closing.jsEnabled,
+    });
+  }
   if (tabs.length === 1) { newTab(); }
   const wasActive = activeId === id;
-  tabs[i].el.remove();
+  closing.el.remove();
   tabs.splice(i, 1);
   if (wasActive && tabs.length) switchTab(tabs[Math.min(i, tabs.length - 1)].id);
   renderTabs();
+}
+
+function reopenClosedTab() {
+  const closed = closedTabs.pop();
+  if (!closed) return;
+  const tab = newTab(closed.url || undefined, { jsEnabled: closed.jsEnabled });
+  if (closed.query) searchInTab(tab, closed.query);
+}
+
+function duplicateTab(tab = activeTab()) {
+  if (!tab) return;
+  if (tab.searchData?.query) {
+    const copy = newTab();
+    searchInTab(copy, tab.searchData.query);
+    return;
+  }
+  newTab(tab.url || undefined, { jsEnabled: tab.jsEnabled });
+}
+
+function cycleTab(delta) {
+  const current = tabs.findIndex((tab) => tab.id === activeId);
+  const next = nextTabIndex(tabs.length, current, delta);
+  if (next >= 0) switchTab(tabs[next].id);
+}
+
+function switchNumberedTab(number) {
+  const index = numberedTabIndex(number, tabs.length);
+  if (index >= 0) switchTab(tabs[index].id);
 }
 
 function renderTabs() {
@@ -116,6 +155,7 @@ function renderTabs() {
   tabs.forEach((t) => {
     const el = document.createElement("div");
     el.className = "tab" + (t.id === activeId ? " active" : "");
+    el.dataset.tabId = t.id;
     el.innerHTML = `<span class="tab-title">${esc(t.title)}</span><button class="tab-close">×</button>`;
     el.addEventListener("click", () => switchTab(t.id));
     el.querySelector(".tab-close").addEventListener("click", (e) => { e.stopPropagation(); closeTab(t.id); });
@@ -125,6 +165,88 @@ function renderTabs() {
 
 function activeTab() { return tabs.find((t) => t.id === activeId); }
 
+const contextMenu = document.createElement("div");
+contextMenu.className = "context-menu hidden";
+document.body.appendChild(contextMenu);
+
+function hideContextMenu() {
+  contextMenu.classList.add("hidden");
+  contextMenu.innerHTML = "";
+}
+
+function menuItem(label, action, disabled = false) {
+  const button = document.createElement("button");
+  button.className = "context-item";
+  button.textContent = label;
+  button.disabled = disabled;
+  button.addEventListener("click", (event) => {
+    event.stopPropagation();
+    hideContextMenu();
+    if (!disabled) action();
+  });
+  contextMenu.appendChild(button);
+}
+
+function menuSeparator() {
+  const separator = document.createElement("div");
+  separator.className = "context-separator";
+  contextMenu.appendChild(separator);
+}
+
+function showContextMenu({ x, y, linkURL = "", selection = "", tab = activeTab() }) {
+  if (!tab) return;
+  hideContextMenu();
+
+  if (linkURL) {
+    menuItem("Open Link in New Tab", () => newTab(linkURL, { activate: false, jsEnabled: tab.jsEnabled }));
+    menuItem("Open Link in Current Tab", () => loadURL(tab, linkURL));
+    menuItem("Copy Link Address", () => ClipboardSetText(linkURL));
+    menuSeparator();
+  }
+  if (selection) {
+    menuItem("Copy Selection", () => ClipboardSetText(selection));
+    menuSeparator();
+  }
+
+  menuItem("Back", () => goBack(tab), tab.isMemento || tab.historyIndex <= 0);
+  menuItem("Forward", () => goForward(tab), tab.isMemento || tab.historyIndex >= tab.history.length - 1);
+  menuItem("Reload", () => refreshTab(tab));
+  menuSeparator();
+  menuItem("Duplicate Tab", () => duplicateTab(tab));
+  menuItem("Copy Page Address", () => ClipboardSetText(tab.url), !tab.url);
+  menuItem("New Tab", () => newTab());
+  menuItem("Reopen Closed Tab", reopenClosedTab, closedTabs.length === 0);
+  menuItem("Close Tab", () => closeTab(tab.id));
+
+  contextMenu.classList.remove("hidden");
+  const left = Math.max(8, Math.min(x, window.innerWidth - contextMenu.offsetWidth - 8));
+  const top = Math.max(8, Math.min(y, window.innerHeight - contextMenu.offsetHeight - 8));
+  contextMenu.style.left = left + "px";
+  contextMenu.style.top = top + "px";
+}
+
+let lastShortcutAction = "", lastShortcutAt = 0;
+function performShortcut(action) {
+  const now = performance.now();
+  if (action === lastShortcutAction && now - lastShortcutAt < 80) return;
+  lastShortcutAction = action;
+  lastShortcutAt = now;
+
+  if (action === "new-tab") newTab();
+  else if (action === "reopen-tab") reopenClosedTab();
+  else if (action === "duplicate-tab") duplicateTab();
+  else if (action === "close-tab") { if (activeId) closeTab(activeId); }
+  else if (action === "back") goBack();
+  else if (action === "forward") goForward();
+  else if (action === "reload") refreshActive();
+  else if (action === "focus-location") { urlInput.focus(); urlInput.select(); }
+  else if (action === "next-tab") cycleTab(1);
+  else if (action === "previous-tab") cycleTab(-1);
+  else if (/^tab-[1-9]$/.test(action)) switchNumberedTab(Number(action.slice(4)));
+}
+
+EventsOn("ghoster:shortcut", performShortcut);
+
 // Browsed documents run on the local proxy origin, so they report their
 // logical remote URL/title with postMessage. This keeps chrome synchronized
 // after link clicks, redirects, back, and forward.
@@ -133,15 +255,24 @@ window.addEventListener("message", (event) => {
   if (!data) return;
   const tab = tabs.find((t) => t.el.tagName === "IFRAME" && t.el.contentWindow === event.source);
   if (!tab) return;
+  if (data.type === "ghoster-open-tab" && /^https?:\/\//.test(data.url || "")) {
+    newTab(data.url, { activate: !data.background, jsEnabled: tab.jsEnabled });
+    return;
+  }
+  if (data.type === "ghoster-context") {
+    const rect = tab.el.getBoundingClientRect();
+    showContextMenu({
+      x: rect.left + Number(data.x || 0),
+      y: rect.top + Number(data.y || 0),
+      linkURL: /^https?:\/\//.test(data.linkURL || "") ? data.linkURL : "",
+      selection: data.selection || "",
+      tab,
+    });
+    return;
+  }
   if (data.type === "ghoster-key") {
-    const key = (data.key || "").toLowerCase();
-    const code = data.code || "";
-    if (key === "r" || code === "KeyR") refreshActive();
-    else if (key === "l" || code === "KeyL") { urlInput.focus(); urlInput.select(); }
-    else if (key === "t" || code === "KeyT") newTab();
-    else if (key === "w" || code === "KeyW") closeTab(tab.id);
-    else if (data.key === "[" || code === "BracketLeft" || (data.altKey && data.key === "ArrowLeft")) goBack();
-    else if (data.key === "]" || code === "BracketRight" || (data.altKey && data.key === "ArrowRight")) goForward();
+    if (data.altKey && data.key === "ArrowLeft") performShortcut("back");
+    else if (data.altKey && data.key === "ArrowRight") performShortcut("forward");
     return;
   }
   if (data.type !== "ghoster-nav" || !/^https?:\/\//.test(data.url || "")) return;
@@ -528,22 +659,19 @@ function renderCountries(filter) {
 }
 
 // ── TOOLBAR + PANELS ──
-function goBack() {
-  const t = activeTab();
+function goBack(t = activeTab()) {
   if (!t || t.el.tagName !== "IFRAME") return;
   const url = stepHistory(t, -1);
   if (url) loadURL(t, url, false);
 }
-function goForward() {
-  const t = activeTab();
+function goForward(t = activeTab()) {
   if (!t || t.el.tagName !== "IFRAME") return;
   const url = stepHistory(t, 1);
   if (url) loadURL(t, url, false);
 }
 document.getElementById("btn-back").addEventListener("click", goBack);
 document.getElementById("btn-fwd").addEventListener("click", goForward);
-function refreshActive() {
-  const t = activeTab();
+function refreshTab(t) {
   if (!t) return;
   if (t.isMemento) {
     const query = t.searchData?.query || t.el.querySelector(".m-input")?.value || "";
@@ -555,16 +683,24 @@ function refreshActive() {
   t.pendingURL = t.url;
   t.el.src = browseURL(t, t.url);
 }
+function refreshActive() { refreshTab(activeTab()); }
 document.getElementById("btn-reload").addEventListener("click", refreshActive);
 document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") { hideContextMenu(); return; }
+  // Packaged builds use native menu accelerators so shortcuts work even while
+  // WebKit content owns focus. Keep JS bindings only for browser-based dev.
+  if (window.runtime) return;
   const mod = e.metaKey || e.ctrlKey;
   const key = e.key.toLowerCase();
-  if (mod && key === "r") { e.preventDefault(); refreshActive(); }
-  else if (mod && key === "l") { e.preventDefault(); urlInput.focus(); urlInput.select(); }
-  else if (mod && key === "t") { e.preventDefault(); newTab(); }
-  else if (mod && key === "w") { e.preventDefault(); if (activeId) closeTab(activeId); }
-  else if ((mod && e.key === "[") || (e.altKey && e.key === "ArrowLeft")) { e.preventDefault(); goBack(); }
-  else if ((mod && e.key === "]") || (e.altKey && e.key === "ArrowRight")) { e.preventDefault(); goForward(); }
+  if (mod && key === "r") { e.preventDefault(); performShortcut("reload"); }
+  else if (mod && key === "l") { e.preventDefault(); performShortcut("focus-location"); }
+  else if (mod && e.shiftKey && key === "t") { e.preventDefault(); performShortcut("reopen-tab"); }
+  else if (mod && key === "t") { e.preventDefault(); performShortcut("new-tab"); }
+  else if (mod && key === "w") { e.preventDefault(); performShortcut("close-tab"); }
+  else if (e.ctrlKey && key === "tab") { e.preventDefault(); performShortcut(e.shiftKey ? "previous-tab" : "next-tab"); }
+  else if (mod && /^[1-9]$/.test(key)) { e.preventDefault(); performShortcut("tab-" + key); }
+  else if ((mod && e.key === "[") || (e.altKey && e.key === "ArrowLeft")) { e.preventDefault(); performShortcut("back"); }
+  else if ((mod && e.key === "]") || (e.altKey && e.key === "ArrowRight")) { e.preventDefault(); performShortcut("forward"); }
 });
 document.getElementById("btn-home").addEventListener("click", () => { const t = activeTab(); if (t) loadMemento(t); });
 document.getElementById("btn-new-tab").addEventListener("click", () => newTab());
@@ -586,7 +722,22 @@ const country = document.getElementById("country-panel");
 document.getElementById("btn-shield").addEventListener("click", async (e) => { e.stopPropagation(); country.classList.add("hidden"); shield.classList.toggle("hidden"); if (!shield.classList.contains("hidden")) { updateJSUI(activeTab()); const ip = document.getElementById("shield-ip"); ip.textContent = "◐ checking exit ip…"; try { const r = await fetch(PROXY + "/browse?js=0&url=" + encodeURIComponent("https://check.torproject.org/api/ip")); const txt = await r.text(); const m = txt.match(/"IP":"([^"]+)"/); ip.innerHTML = '<span class="sg">●</span> exit ip: ' + (m ? m[1] : "unknown"); } catch { ip.innerHTML = '<span class="sg">●</span> exit ip: unknown'; } const hash = await SessionHash(); document.getElementById("shield-hash").textContent = "session: " + hash.slice(0, 32) + "…"; } });
 document.getElementById("btn-country").addEventListener("click", (e) => { e.stopPropagation(); shield.classList.add("hidden"); country.classList.toggle("hidden"); if (!country.classList.contains("hidden")) document.getElementById("country-search").focus(); });
 document.getElementById("country-search").addEventListener("input", (e) => renderCountries(e.target.value));
-document.addEventListener("click", (e) => { if (!shield.contains(e.target) && e.target.id !== "btn-shield") shield.classList.add("hidden"); if (!country.contains(e.target) && e.target.id !== "btn-country") country.classList.add("hidden"); });
+document.addEventListener("click", (e) => { hideContextMenu(); if (!shield.contains(e.target) && e.target.id !== "btn-shield") shield.classList.add("hidden"); if (!country.contains(e.target) && e.target.id !== "btn-country") country.classList.add("hidden"); });
+document.addEventListener("contextmenu", (event) => {
+  if (contextMenu.contains(event.target)) return;
+  event.preventDefault();
+  const result = event.target.closest?.("[data-url]");
+  const tabElement = event.target.closest?.("[data-tab-id]");
+  const tab = tabElement ? tabs.find((item) => item.id === tabElement.dataset.tabId) : activeTab();
+  showContextMenu({
+    x: event.clientX,
+    y: event.clientY,
+    linkURL: result?.dataset.url || "",
+    selection: window.getSelection()?.toString().trim() || "",
+    tab,
+  });
+});
+window.addEventListener("blur", hideContextMenu);
 
 function updateJSUI(tab) {
   const button = document.getElementById("btn-js");

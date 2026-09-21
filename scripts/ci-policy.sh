@@ -9,7 +9,7 @@ if grep -RinE 'uaStealth|mode-stealth|SetMode\s*\(' \
   exit 1
 fi
 
-grep -q 'jsEnabled: false' frontend/src/main.js
+grep -q 'jsEnabled = false' frontend/src/main.js
 grep -q 'r.URL.Query().Get("js") == "1"' proxy/browse.go
 grep -q 'script-src.*nonce-' proxy/browse.go
 grep -q 'icon-ui.png' frontend/src/main.js

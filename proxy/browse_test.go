@@ -22,6 +22,7 @@ func TestRewriteHTMLRoutesNavigationAndAssets(t *testing.T) {
 		`href="http://127.0.0.1:8888/asset?url=https%3A%2F%2Fexample.com%2Fapp.css"`,
 		`href="http://127.0.0.1:8888/browse?js=0&amp;url=https%3A%2F%2Fexample.com%2Fnext"`,
 		`target="_self"`,
+		`data-ghoster-newtab="1"`,
 		`action="http://127.0.0.1:8888/browse?js=0&amp;url=https%3A%2F%2Fexample.com%2Fsubmit"`,
 		`src="http://127.0.0.1:8888/asset?url=https%3A%2F%2Fexample.com%2Fdir%2Fimg%2Fa.png"`,
 		`src="http://127.0.0.1:8888/browse?js=0&amp;url=https%3A%2F%2Fexample.com%2Finside"`,
@@ -57,7 +58,16 @@ func TestRewriteCSSRoutesRelativeResources(t *testing.T) {
 func TestInjectIncludesNavigationReporter(t *testing.T) {
 	base, _ := url.Parse("https://example.com/final")
 	got := injectInto("<html><head><title>x</title></head><body></body></html>", base, "http://127.0.0.1:8888", false)
-	for _, want := range []string{`type:"ghoster-nav"`, `type:"ghoster-key"`, `"https://example.com/final"`, `<base href="https://example.com/final">`} {
+	for _, want := range []string{
+		`type:"ghoster-nav"`,
+		`type:"ghoster-key"`,
+		`type:"ghoster-open-tab"`,
+		`type:"ghoster-context"`,
+		`document.addEventListener("auxclick"`,
+		`window.open=function`,
+		`"https://example.com/final"`,
+		`<base href="https://example.com/final">`,
+	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("injection missing %q", want)
 		}

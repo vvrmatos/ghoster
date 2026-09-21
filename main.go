@@ -32,6 +32,7 @@ func main() {
 		AssetServer: &assetserver.Options{
 			Assets: assets,
 		},
+		Menu:             ghosterMenu(app),
 		BackgroundColour: &options.RGBA{R: 8, G: 8, B: 12, A: 1},
 		OnStartup:        app.startup,
 		Bind: []interface{}{
