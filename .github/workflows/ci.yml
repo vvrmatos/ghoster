@@ -1,0 +1,119 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  core:
+    name: Go core, race, coverage, policy
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Download modules
+        run: go mod download
+
+      - name: Project invariants
+        run: ./scripts/ci-policy.sh
+
+      - name: Vet core
+        run: go vet ./proxy ./search
+
+      - name: Race tests with coverage
+        run: |
+          go test -race -count=1 \
+            -covermode=atomic \
+            -coverpkg=./proxy,./search \
+            -coverprofile=coverage.out \
+            ./proxy ./search
+          go tool cover -func=coverage.out
+          total="$(go tool cover -func=coverage.out | awk '/^total:/{gsub("%","",$3); print $3}')"
+          awk -v total="$total" 'BEGIN {
+            if (total < 45) {
+              printf "Core coverage %.1f%% is below 45%%\n", total
+              exit 1
+            }
+          }'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: core-coverage
+          path: coverage.out
+
+  frontend:
+    name: Frontend tests and production bundle
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - run: npm ci
+      - run: npm test
+      - run: npm run build
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+  macos-app:
+    name: macOS Wails package
+    needs: [core, frontend]
+    runs-on: macos-14
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install pinned Wails CLI
+        run: go install github.com/wailsapp/wails/v2/cmd/wails@v2.16.0
+
+      - name: Build packaged app
+        run: |
+          "$(go env GOPATH)/bin/wails" build
+          test -x build/bin/Ghoster.app/Contents/MacOS/Ghoster
+          shasum -a 256 build/bin/Ghoster.app/Contents/MacOS/Ghoster
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Ghoster-macOS
+          path: build/bin/Ghoster.app

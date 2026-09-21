@@ -1,0 +1,56 @@
+name: Live Tor smoke
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  live-search:
+    name: Real engines through Tor
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Start Tor
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tor netcat-openbsd
+          mkdir -p "$RUNNER_TEMP/tor"
+          tor \
+            --SocksPort 9050 \
+            --DataDirectory "$RUNNER_TEMP/tor" \
+            --Log "notice stdout" \
+            > "$RUNNER_TEMP/tor.log" 2>&1 &
+          for attempt in $(seq 1 60); do
+            echo "waiting for Tor ($attempt/60)"
+            if nc -z 127.0.0.1 9050; then
+              exit 0
+            fi
+            sleep 1
+          done
+          cat "$RUNNER_TEMP/tor.log"
+          exit 1
+
+      - name: Exercise real search engines
+        env:
+          GHOSTER_LIVE: "1"
+        run: |
+          go test ./search \
+            -run 'TestFastLive|TestSearchPageLive' \
+            -count=1 \
+            -v \
+            -timeout=10m
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: tor-log
+          path: ${{ runner.temp }}/tor.log

@@ -146,12 +146,25 @@ wails dev
 ## Tests
 
 ```bash
-go test ./...                                  # offline: parsers vs saved pages
-GHOSTER_LIVE=1 go test ./search -run Live -v   # live: real engines over Tor
+./scripts/ci-policy.sh
+go vet ./proxy ./search
+go test -race ./proxy ./search
+cd frontend && npm ci && npm test && npm run build
+
+# Optional: real external engines through a running Tor daemon
+GHOSTER_LIVE=1 go test ./search \
+  -run 'TestFastLive|TestSearchPageLive' -count=1 -v -timeout=10m
 ```
 
-The parser tests run against fixtures in `search/testdata/`, so when a search engine
-changes its markup the test fails instead of the app quietly showing nothing.
+`.github/workflows/ci.yml` runs policy checks, race tests, a 45% core coverage
+floor, frontend history tests, the production bundle, and a real macOS Wails
+package build on every push and pull request. `.github/workflows/live-tor-smoke.yml`
+is manual because Tor exits and third-party engines are external and inherently
+flaky; it starts a fresh Tor daemon and exercises the real search sources.
+
+Parser fixtures catch upstream markup changes without network access. Gateway
+integration tests cover redirects, permanent Phantom headers, cookie stripping,
+absolute link/resource rewriting, JavaScript default-off CSP, and explicit JS opt-in.
 
 ## Layout
 
