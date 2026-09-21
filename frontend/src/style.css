@@ -14,7 +14,7 @@ body {
 /* splash */
 .splash { height:100vh; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:12px; --wails-draggable:drag; }
 .splash-logo-wrap { position:relative; width:140px; height:140px; }
-.splash-logo { width:140px; height:140px; border-radius:28px; position:relative; z-index:2; }
+.splash-logo { width:140px; height:140px; position:relative; z-index:2; }
 .splash-ring { position:absolute; top:-8px; left:-8px; width:156px; height:156px; border-radius:50%; border:3px solid transparent; border-top-color:#00a8ff; border-right-color:#0060ff; animation:spin 1.2s linear infinite; z-index:1; opacity:.7; }
 .splash-ring.done { animation:none; opacity:.2; }
 .splash-glow { position:absolute; top:-20px; left:-20px; width:180px; height:180px; border-radius:50%; background:radial-gradient(circle,rgba(0,120,255,.15),transparent 70%); animation:glow 2s ease-in-out infinite; }
@@ -38,7 +38,7 @@ body {
 .tb { background:none; border:none; color:var(--dim); width:32px; height:30px; border-radius:6px; cursor:pointer; font-size:15px; display:flex; align-items:center; justify-content:center; transition:all .1s; }
 .tb:hover { background:var(--surface); color:var(--text); }
 .tb:active { transform:scale(.9); }
-.ghost-icon { width:20px; height:20px; border-radius:4px; }
+.ghost-icon { width:20px; height:20px; }
 .tor-dot { font-size:10px; }
 .tor-dot.on { color:var(--green); }
 .tor-dot.off { color:var(--red); }

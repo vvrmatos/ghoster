@@ -1,5 +1,5 @@
 import "./style.css";
-import iconUrl from "./assets/images/icon.png";
+import iconUrl from "./assets/images/icon-ui.png";
 import { recordHistory, stepHistory } from "./history.js";
 import {
   TorStatus, SessionHash, VerifyIntegrity, NewIdentity,
@@ -218,12 +218,12 @@ function browseURL(tab, url) {
 // ── MEMENTO (native, in-app) ──
 
 // ghostMark is the real app icon with a light that travels along the ring
-// already drawn in the artwork. The overlay circle matches the ring measured
-// from icon.png: centre 253,241 and radius 144 in its 512px space.
+// already drawn in the artwork. icon-ui.png is a transparent crop of the real
+// icon; the ring is centred at 180,180 with radius 144 in its 360px space.
 function ghostMark() {
   return `<img class="m-mark" src="${iconUrl}" alt="ghoster">
-  <svg class="m-halo" viewBox="0 0 512 512" aria-hidden="true">
-    <circle class="m-ring-arc" cx="253" cy="241" r="144" fill="none"
+  <svg class="m-halo" viewBox="0 0 360 360" aria-hidden="true">
+    <circle class="m-ring-arc" cx="180" cy="180" r="144" fill="none"
       stroke="#9fe3ff" stroke-width="26" stroke-linecap="round"/>
   </svg>`;
 }
@@ -246,10 +246,10 @@ function mementoHTML() {
     .m-home.has{min-height:auto;padding:30px 0 10px;}
     .m-logo{display:flex;align-items:center;gap:12px;}
     .m-logo-wrap{position:relative;display:inline-flex;width:52px;height:52px;}
-    .m-mark{width:100%;height:100%;border-radius:22%;}
+    .m-mark{width:100%;height:100%;}
     /* a light runs along the icon's own ring: slow idle, fast while searching */
     .m-halo{position:absolute;inset:0;width:100%;height:100%;mix-blend-mode:screen;pointer-events:none;}
-    .m-ring-arc{opacity:.5;stroke-dasharray:110 795;transform-box:view-box;transform-origin:253px 241px;animation:m-orbit 3.6s linear infinite;}
+    .m-ring-arc{opacity:.5;stroke-dasharray:110 795;transform-box:view-box;transform-origin:180px 180px;animation:m-orbit 3.6s linear infinite;}
     .m-logo-wrap.searching .m-ring-arc{opacity:.85;stroke-dasharray:300 605;animation-duration:.8s;}
     .m-home.has .m-logo-wrap{width:34px;height:34px;}
     @keyframes m-orbit{to{transform:rotate(360deg);}}
