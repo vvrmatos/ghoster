@@ -28,8 +28,6 @@ export function SessionHash():Promise<string>;
 
 export function SetCountry(arg1:string):Promise<search.Country>;
 
-export function SetMode(arg1:string):Promise<string>;
-
 export function TorStatus():Promise<boolean>;
 
 export function VerifyIntegrity(arg1:string):Promise<string>;

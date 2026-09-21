@@ -2,7 +2,9 @@ package proxy
 
 import (
 	"bytes"
+	"crypto/rand"
 	_ "embed"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"html"
@@ -17,10 +19,6 @@ import (
 
 //go:embed nuke.js
 var nukeRaw string
-
-// nukeInline is the full anti-tracking suite, wrapped in a script tag,
-// injected at the very top of <head> so it runs before any site script.
-var nukeInline = "<script>" + nukeRaw + "</script>"
 
 // frameHeaders are stripped so the page can be framed and can't track.
 var frameHeaders = []string{
@@ -94,8 +92,9 @@ func (p *Proxy) serveBrowse(w http.ResponseWriter, r *http.Request) {
 	}
 	base := resp.Request.URL
 	gateway := proxyOrigin(r)
-	rewritten := rewriteHTML(string(body), base, gateway)
-	rewritten = injectInto(rewritten, base, gateway)
+	allowSiteJS := r.URL.Query().Get("js") == "1"
+	rewritten := rewriteHTML(string(body), base, gateway, allowSiteJS)
+	rewritten = injectInto(rewritten, base, gateway, allowSiteJS)
 
 	w.WriteHeader(resp.StatusCode)
 	_, _ = io.WriteString(w, rewritten)
@@ -178,7 +177,10 @@ func proxyOrigin(r *http.Request) string {
 	return "http://" + host
 }
 
-func gatewayURL(origin, route string, target *url.URL) string {
+func gatewayURL(origin, route string, target *url.URL, allowSiteJS bool) string {
+	if route == "/browse" {
+		return origin + route + "?js=" + map[bool]string{false: "0", true: "1"}[allowSiteJS] + "&url=" + url.QueryEscape(target.String())
+	}
 	return origin + route + "?url=" + url.QueryEscape(target.String())
 }
 
@@ -194,7 +196,7 @@ func shouldResolve(raw string) bool {
 
 // rewriteHTML routes navigations through /browse and resources through /asset.
 // Gateway URLs are absolute so an injected remote <base> can never steal them.
-func rewriteHTML(raw string, base *url.URL, origin string) string {
+func rewriteHTML(raw string, base *url.URL, origin string, allowSiteJS bool) string {
 	doc, err := xhtml.Parse(strings.NewReader(raw))
 	if err != nil {
 		return raw
@@ -203,6 +205,30 @@ func rewriteHTML(raw string, base *url.URL, origin string) string {
 	walk = func(n *xhtml.Node) {
 		if n.Type == xhtml.ElementNode {
 			tag := strings.ToLower(n.Data)
+			if !allowSiteJS && tag == "script" {
+				if n.Parent != nil {
+					n.Parent.RemoveChild(n)
+				}
+				return
+			}
+			if tag == "meta" && isMetaCSP(n) {
+				if n.Parent != nil {
+					n.Parent.RemoveChild(n)
+				}
+				return
+			}
+			if !allowSiteJS {
+				attrs := n.Attr[:0]
+				for _, candidate := range n.Attr {
+					key := strings.ToLower(candidate.Key)
+					value := strings.ToLower(strings.TrimSpace(candidate.Val))
+					if strings.HasPrefix(key, "on") || strings.HasPrefix(value, "javascript:") {
+						continue
+					}
+					attrs = append(attrs, candidate)
+				}
+				n.Attr = attrs
+			}
 			for i := range n.Attr {
 				attr := strings.ToLower(n.Attr[i].Key)
 				value := n.Attr[i].Val
@@ -227,13 +253,13 @@ func rewriteHTML(raw string, base *url.URL, origin string) string {
 				}
 				switch {
 				case (tag == "a" || tag == "area") && attr == "href":
-					n.Attr[i].Val = gatewayURL(origin, "/browse", abs)
+					n.Attr[i].Val = gatewayURL(origin, "/browse", abs, allowSiteJS)
 				case tag == "form" && attr == "action":
-					n.Attr[i].Val = gatewayURL(origin, "/browse", abs)
+					n.Attr[i].Val = gatewayURL(origin, "/browse", abs, allowSiteJS)
 				case (tag == "iframe" || tag == "frame") && attr == "src":
-					n.Attr[i].Val = gatewayURL(origin, "/browse", abs)
+					n.Attr[i].Val = gatewayURL(origin, "/browse", abs, allowSiteJS)
 				case isResourceAttribute(tag, attr):
-					n.Attr[i].Val = gatewayURL(origin, "/asset", abs)
+					n.Attr[i].Val = gatewayURL(origin, "/asset", abs, allowSiteJS)
 				}
 			}
 			if tag == "style" {
@@ -244,11 +270,13 @@ func rewriteHTML(raw string, base *url.URL, origin string) string {
 				}
 			}
 			if tag == "meta" {
-				rewriteMetaRefresh(n, base, origin)
+				rewriteMetaRefresh(n, base, origin, allowSiteJS)
 			}
 		}
-		for child := n.FirstChild; child != nil; child = child.NextSibling {
+		for child := n.FirstChild; child != nil; {
+			next := child.NextSibling
 			walk(child)
+			child = next
 		}
 	}
 	walk(doc)
@@ -259,7 +287,17 @@ func rewriteHTML(raw string, base *url.URL, origin string) string {
 	return out.String()
 }
 
-func rewriteMetaRefresh(n *xhtml.Node, base *url.URL, origin string) {
+func isMetaCSP(n *xhtml.Node) bool {
+	for _, attr := range n.Attr {
+		if strings.EqualFold(attr.Key, "http-equiv") {
+			value := strings.ToLower(strings.TrimSpace(attr.Val))
+			return value == "content-security-policy" || value == "content-security-policy-report-only"
+		}
+	}
+	return false
+}
+
+func rewriteMetaRefresh(n *xhtml.Node, base *url.URL, origin string, allowSiteJS bool) {
 	isRefresh := false
 	contentIndex := -1
 	for i := range n.Attr {
@@ -287,7 +325,7 @@ func rewriteMetaRefresh(n *xhtml.Node, base *url.URL, origin string) {
 	if err != nil {
 		return
 	}
-	n.Attr[contentIndex].Val = content[:pos] + "url=" + gatewayURL(origin, "/browse", abs)
+	n.Attr[contentIndex].Val = content[:pos] + "url=" + gatewayURL(origin, "/browse", abs, allowSiteJS)
 }
 
 func isResourceAttribute(tag, attr string) bool {
@@ -314,7 +352,7 @@ func rewriteSrcset(raw string, base *url.URL, origin string) string {
 			continue
 		}
 		if abs, err := base.Parse(fields[0]); err == nil {
-			fields[0] = gatewayURL(origin, "/asset", abs)
+			fields[0] = gatewayURL(origin, "/asset", abs, false)
 			parts[i] = strings.Join(fields, " ")
 		}
 	}
@@ -331,7 +369,7 @@ func rewriteCSS(raw string, base *url.URL, origin string) string {
 		if err != nil {
 			return match
 		}
-		return `url("` + gatewayURL(origin, "/asset", abs) + `")`
+		return `url("` + gatewayURL(origin, "/asset", abs, false) + `")`
 	})
 	return cssImportRe.ReplaceAllStringFunc(raw, func(match string) string {
 		sub := cssImportRe.FindStringSubmatch(match)
@@ -342,7 +380,7 @@ func rewriteCSS(raw string, base *url.URL, origin string) string {
 		if err != nil {
 			return match
 		}
-		return `@import "` + gatewayURL(origin, "/asset", abs) + `"`
+		return `@import "` + gatewayURL(origin, "/asset", abs, false) + `"`
 	})
 }
 
@@ -374,11 +412,18 @@ func writeBrowseError(w http.ResponseWriter, err error) {
 	_, _ = io.WriteString(w, "<body style='background:#08080c;color:#f87171;font-family:sans-serif;padding:40px'>failed to load through tor: "+html.EscapeString(err.Error())+"</body>")
 }
 
-// injectInto adds nuke.js and a navigation reporter before site scripts.
-func injectInto(page string, base *url.URL, origin string) string {
+// injectInto always allows Ghoster's private bridge scripts. Site scripts are
+// independently stripped and blocked unless the user explicitly enabled them.
+func injectInto(page string, base *url.URL, origin string, allowSiteJS bool) string {
 	logical, _ := json.Marshal(base.String())
-	gateway, _ := json.Marshal(origin + "/browse?url=")
-	nav := `<script>(function(){
+	jsFlag := "0"
+	if allowSiteJS {
+		jsFlag = "1"
+	}
+	gateway, _ := json.Marshal(origin + "/browse?js=" + jsFlag + "&url=")
+	nonce := scriptNonce()
+	scriptOpen := `<script nonce="` + nonce + `">`
+	nav := scriptOpen + `(function(){
 var u=` + string(logical) + `,g=` + string(gateway) + `;
 function send(){try{parent.postMessage({type:"ghoster-nav",url:u,title:document.title||""},"*")}catch(e){}}
 function local(x){return g+encodeURIComponent(x)}
@@ -391,7 +436,11 @@ document.addEventListener("submit",function(e){var f=e.target;if(!f||!f.action)r
 ["pushState","replaceState"].forEach(function(k){var o=history[k];history[k]=function(s,t,x){if(x!=null){try{u=new URL(x,u).href;x=local(u)}catch(_){}}var r=o.call(this,s,t,x);send();return r}});
 new MutationObserver(send).observe(document.documentElement,{subtree:true,childList:true,characterData:true});
 })();</script>`
-	inject := nukeInline + nav + `<base href="` + base.String() + `">`
+	inject := scriptOpen + nukeRaw + `</script>` + nav
+	if !allowSiteJS {
+		inject += `<meta http-equiv="Content-Security-Policy" content="script-src 'nonce-` + nonce + `'; object-src 'none'">`
+	}
+	inject += `<base href="` + base.String() + `">`
 	if i := strings.Index(strings.ToLower(page), "<head>"); i != -1 {
 		return page[:i+6] + inject + page[i+6:]
 	}
@@ -402,4 +451,12 @@ new MutationObserver(send).observe(document.documentElement,{subtree:true,childL
 		}
 	}
 	return inject + page
+}
+
+func scriptNonce() string {
+	buf := make([]byte, 18)
+	if _, err := rand.Read(buf); err != nil {
+		return "ghoster-internal"
+	}
+	return base64.RawStdEncoding.EncodeToString(buf)
 }

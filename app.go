@@ -64,17 +64,6 @@ func (a *App) VerifyIntegrity(data string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// SetMode switches UA between "phantom" and "stealth".
-func (a *App) SetMode(mode string) string {
-	if mode == "stealth" {
-		a.prox.SetMode(proxy.Stealth)
-	} else {
-		a.prox.SetMode(proxy.Phantom)
-		mode = "phantom"
-	}
-	return mode
-}
-
 // NewIdentity rotates the session hash (frontend also clears storage).
 func (a *App) NewIdentity() string {
 	buf := make([]byte, 32)

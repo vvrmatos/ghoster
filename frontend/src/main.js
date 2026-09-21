@@ -2,7 +2,7 @@ import "./style.css";
 import iconUrl from "./assets/images/icon.png";
 import { recordHistory, stepHistory } from "./history.js";
 import {
-  TorStatus, SessionHash, VerifyIntegrity, SetMode, NewIdentity,
+  TorStatus, SessionHash, VerifyIntegrity, NewIdentity,
   Countries, SetCountry, GetGeo, SearchFast, SearchPage, SearchDarkPage, ProxyAddr,
 } from "../wailsjs/go/main/App";
 
@@ -66,7 +66,7 @@ function newTab(url) {
     id, title: "ghoster", url: url || "", isMemento: !url,
     searchData: null, searchFilter: "all", searchToken: 0,
     history: url ? [url] : [], historyIndex: url ? 0 : -1,
-    pendingURL: url || "",
+    pendingURL: url || "", jsEnabled: false,
   };
 
   if (tab.isMemento) {
@@ -79,7 +79,7 @@ function newTab(url) {
   } else {
     const f = document.createElement("iframe");
     f.id = id;
-    f.src = PROXY + "/browse?url=" + encodeURIComponent(url);
+    f.src = browseURL(tab, url);
     f.addEventListener("load", () => finishLoad());
     viewContainer.appendChild(f);
     tab.el = f;
@@ -96,6 +96,7 @@ function switchTab(id) {
   tabs.forEach((t) => t.el.classList.toggle("active-view", t.id === id));
   const t = tabs.find((x) => x.id === id);
   if (t) { urlInput.value = t.isMemento ? "" : t.url; document.getElementById("url-lock").textContent = t.isMemento ? "◈" : "▪"; }
+  updateJSUI(t);
   renderTabs();
 }
 
@@ -185,7 +186,7 @@ function loadURL(t, url, record = true) {
     f.id = t.id; f.addEventListener("load", () => finishLoad());
     t.el.replaceWith(f); t.el = f;
   }
-  t.el.src = PROXY + "/browse?url=" + encodeURIComponent(url);
+  t.el.src = browseURL(t, url);
   t.el.classList.add("active-view");
   urlInput.value = url;
   document.getElementById("url-lock").textContent = "▪";
@@ -196,6 +197,7 @@ function loadMemento(t) {
   t.searchToken++;
   t.searchData = null;
   t.searchFilter = "all";
+  t.jsEnabled = false;
   t.pendingURL = "";
   t.isMemento = true; t.url = ""; t.title = "ghoster";
   const div = document.createElement("div");
@@ -205,7 +207,12 @@ function loadMemento(t) {
   urlInput.value = "";
   document.getElementById("url-lock").textContent = "◈";
   wireMemento(t);
+  updateJSUI(t);
   renderTabs();
+}
+
+function browseURL(tab, url) {
+  return PROXY + "/browse?js=" + (tab.jsEnabled ? "1" : "0") + "&url=" + encodeURIComponent(url);
 }
 
 // ── MEMENTO (native, in-app) ──
@@ -515,7 +522,7 @@ function renderCountries(filter) {
     const el = document.createElement("div");
     el.className = "country-item" + (c.code === activeCountry ? " active" : "");
     el.innerHTML = `<span class="country-flag">${c.flag}</span><span>${c.name}</span>`;
-    el.addEventListener("click", async () => { activeCountry = c.code; await SetCountry(c.code); renderCountries(filter); document.getElementById("country-panel").classList.add("hidden"); const t = activeTab(); if (t && !t.isMemento) loadURL(t, t.url); });
+    el.addEventListener("click", async () => { activeCountry = c.code; await SetCountry(c.code); renderCountries(filter); document.getElementById("country-panel").classList.add("hidden"); const t = activeTab(); if (t && !t.isMemento) loadURL(t, t.url, false); });
     list.appendChild(el);
   });
 }
@@ -546,7 +553,7 @@ function refreshActive() {
   }
   startLoad();
   t.pendingURL = t.url;
-  t.el.src = PROXY + "/browse?url=" + encodeURIComponent(t.url);
+  t.el.src = browseURL(t, t.url);
 }
 document.getElementById("btn-reload").addEventListener("click", refreshActive);
 document.addEventListener("keydown", (e) => {
@@ -561,20 +568,43 @@ document.addEventListener("keydown", (e) => {
 });
 document.getElementById("btn-home").addEventListener("click", () => { const t = activeTab(); if (t) loadMemento(t); });
 document.getElementById("btn-new-tab").addEventListener("click", () => newTab());
-document.getElementById("btn-newid").addEventListener("click", async () => { const h = await NewIdentity(); statusText.textContent = "◈ new identity — " + h; setTimeout(() => statusText.textContent = "", 3000); const t = activeTab(); if (t && !t.isMemento) loadURL(t, t.url); });
+document.getElementById("btn-newid").addEventListener("click", async () => {
+  const h = await NewIdentity();
+  tabs.forEach((tab) => { tab.jsEnabled = false; });
+  statusText.textContent = "◈ new identity — " + h;
+  setTimeout(() => statusText.textContent = "", 3000);
+  const t = activeTab();
+  updateJSUI(t);
+  if (t && !t.isMemento) loadURL(t, t.url, false);
+});
 
 urlInput.addEventListener("keydown", (e) => { if (e.key === "Enter") { navigate(urlInput.value); urlInput.blur(); } });
 urlInput.addEventListener("focus", () => urlInput.select());
 
 const shield = document.getElementById("shield-panel");
 const country = document.getElementById("country-panel");
-document.getElementById("btn-shield").addEventListener("click", async (e) => { e.stopPropagation(); country.classList.add("hidden"); shield.classList.toggle("hidden"); if (!shield.classList.contains("hidden")) { const ip = document.getElementById("shield-ip"); ip.textContent = "◐ checking exit ip…"; try { const r = await fetch(PROXY + "/browse?url=" + encodeURIComponent("https://check.torproject.org/api/ip")); const txt = await r.text(); const m = txt.match(/"IP":"([^"]+)"/); ip.innerHTML = '<span class="sg">●</span> exit ip: ' + (m ? m[1] : "unknown"); } catch { ip.innerHTML = '<span class="sg">●</span> exit ip: unknown'; } const hash = await SessionHash(); document.getElementById("shield-hash").textContent = "session: " + hash.slice(0, 32) + "…"; } });
+document.getElementById("btn-shield").addEventListener("click", async (e) => { e.stopPropagation(); country.classList.add("hidden"); shield.classList.toggle("hidden"); if (!shield.classList.contains("hidden")) { updateJSUI(activeTab()); const ip = document.getElementById("shield-ip"); ip.textContent = "◐ checking exit ip…"; try { const r = await fetch(PROXY + "/browse?js=0&url=" + encodeURIComponent("https://check.torproject.org/api/ip")); const txt = await r.text(); const m = txt.match(/"IP":"([^"]+)"/); ip.innerHTML = '<span class="sg">●</span> exit ip: ' + (m ? m[1] : "unknown"); } catch { ip.innerHTML = '<span class="sg">●</span> exit ip: unknown'; } const hash = await SessionHash(); document.getElementById("shield-hash").textContent = "session: " + hash.slice(0, 32) + "…"; } });
 document.getElementById("btn-country").addEventListener("click", (e) => { e.stopPropagation(); shield.classList.add("hidden"); country.classList.toggle("hidden"); if (!country.classList.contains("hidden")) document.getElementById("country-search").focus(); });
 document.getElementById("country-search").addEventListener("input", (e) => renderCountries(e.target.value));
 document.addEventListener("click", (e) => { if (!shield.contains(e.target) && e.target.id !== "btn-shield") shield.classList.add("hidden"); if (!country.contains(e.target) && e.target.id !== "btn-country") country.classList.add("hidden"); });
 
-document.getElementById("mode-phantom").addEventListener("click", async () => { await SetMode("phantom"); document.getElementById("mode-phantom").classList.add("active"); document.getElementById("mode-stealth").classList.remove("active"); document.getElementById("mode-hint").textContent = "phantom — sites see Ghoster on PhantomOS"; const t = activeTab(); if (t && !t.isMemento) loadURL(t, t.url); });
-document.getElementById("mode-stealth").addEventListener("click", async () => { await SetMode("stealth"); document.getElementById("mode-stealth").classList.add("active"); document.getElementById("mode-phantom").classList.remove("active"); document.getElementById("mode-hint").textContent = "stealth — sites see Firefox on Windows"; const t = activeTab(); if (t && !t.isMemento) loadURL(t, t.url); });
+function updateJSUI(tab) {
+  const button = document.getElementById("btn-js");
+  const hint = document.getElementById("js-hint");
+  if (!button || !hint) return;
+  const enabled = !!tab?.jsEnabled;
+  button.classList.toggle("active", enabled);
+  button.textContent = "javascript: " + (enabled ? "on" : "off");
+  hint.textContent = enabled ? "site javascript enabled for this tab" : "site javascript is blocked by default";
+}
+
+document.getElementById("btn-js").addEventListener("click", () => {
+  const tab = activeTab();
+  if (!tab) return;
+  tab.jsEnabled = !tab.jsEnabled;
+  updateJSUI(tab);
+  if (!tab.isMemento && tab.url) loadURL(tab, tab.url, false);
+});
 
 function initTabs() { newTab(); }
 

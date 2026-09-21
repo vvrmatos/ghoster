@@ -21,18 +21,7 @@ const (
 	torSocks = "127.0.0.1:9050"
 )
 
-// Mode controls the spoofed identity.
-type Mode int
-
-const (
-	Phantom Mode = iota
-	Stealth
-)
-
-const (
-	uaPhantom = "Mozilla/5.0 (PhantomOS 1.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 Ghoster/1.0.1"
-	uaStealth = "Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0"
-)
+const uaPhantom = "Mozilla/5.0 (PhantomOS 1.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 Ghoster/1.0.1"
 
 // Headers that reveal the real browser/OS — stripped from every request.
 var stripHeaders = []string{
@@ -46,7 +35,6 @@ var stripHeaders = []string{
 // Proxy is the local sanitizing proxy.
 type Proxy struct {
 	mu        sync.RWMutex
-	mode      Mode
 	lang      string
 	dialer    proxy.Dialer
 	transport *http.Transport
@@ -75,19 +63,11 @@ func New() (*Proxy, error) {
 		TLSClientConfig:       &tls.Config{MinVersion: tls.VersionTLS12},
 	}
 	return &Proxy{
-		mode:      Phantom,
 		lang:      "en-US,en;q=0.5",
 		dialer:    dialer,
 		transport: transport,
 		client:    &http.Client{Transport: transport, Timeout: 45 * time.Second},
 	}, nil
-}
-
-// SetMode switches between phantom and stealth UA.
-func (p *Proxy) SetMode(m Mode) {
-	p.mu.Lock()
-	p.mode = m
-	p.mu.Unlock()
 }
 
 // SetLang updates the spoofed Accept-Language (for nationality switching).
@@ -98,11 +78,6 @@ func (p *Proxy) SetLang(lang string) {
 }
 
 func (p *Proxy) ua() string {
-	p.mu.RLock()
-	defer p.mu.RUnlock()
-	if p.mode == Stealth {
-		return uaStealth
-	}
 	return uaPhantom
 }
 

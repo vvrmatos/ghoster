@@ -54,10 +54,6 @@ export function SetCountry(arg1) {
   return window['go']['main']['App']['SetCountry'](arg1);
 }
 
-export function SetMode(arg1) {
-  return window['go']['main']['App']['SetMode'](arg1);
-}
-
 export function TorStatus() {
   return window['go']['main']['App']['TorStatus']();
 }

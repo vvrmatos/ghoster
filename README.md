@@ -27,7 +27,8 @@ page ever sees you.
 
 - **Tor-only networking.** No direct connections. If Tor is down, nothing loads.
 - **memento search** — a built-in engine that queries the clear web, onion services, and torrents at once, storing nothing.
-- **Phantom / Stealth modes.** Appear as an OS that doesn't exist, or blend in as Firefox on Windows.
+- **PhantomOS identity only.** Sites always receive Ghoster's PhantomOS user agent; there is no Stealth mode.
+- **Site JavaScript off by default.** Enable it explicitly per tab from the security panel; new tabs, Home, New Identity, and app restarts return to off.
 - **23 nationalities** (plus auto-randomize) with matching language, timezone, and jittered geolocation.
 - **Fingerprint poisoning** on canvas, WebGL, WebGPU, audio, fonts, sensors, and 15 other vectors.
 - **No cookies, ever** — `Set-Cookie` is deleted from every response before the page sees it.
@@ -94,12 +95,17 @@ A 429 or 403 from any engine is retried on a **fresh circuit** rather than repor
 | `Cmd/Ctrl+W` | close tab |
 | `Cmd+[ / Cmd+]` or `Alt+← / Alt+→` | back / forward |
 
-## Identity
+## Identity and JavaScript
 
-| Mode | What sites see |
-|---|---|
-| **Phantom** | `Mozilla/5.0 (PhantomOS 1.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 Ghoster/1.0.1` — an OS that does not exist |
-| **Stealth** | `Mozilla/5.0 (Windows NT 10.0; rv:128.0) Gecko/20100101 Firefox/128.0` — one face in the Tor Browser crowd |
+Sites always see:
+
+`Mozilla/5.0 (PhantomOS 1.0; Win64; x64; rv:128.0) Gecko/20100101 Firefox/128.0 Ghoster/1.0.1`
+
+Site JavaScript is removed and blocked by a nonce CSP unless the user explicitly
+enables it for that tab. Ghoster's own nonce-authorized privacy/navigation bridge
+continues running while site JavaScript is off, so fingerprint poisoning,
+address/title synchronization, and browser shortcuts still work. Enabling site
+JavaScript propagates only through that tab's navigations.
 
 Client Hints (`Sec-Ch-Ua*`), `X-Client-Data`, `X-Forwarded-For`, `Forwarded`, and `Via`
 are deleted on the way out; `Set-Cookie` is deleted on the way back.
