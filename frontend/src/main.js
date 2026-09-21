@@ -240,6 +240,9 @@ function performShortcut(action) {
   else if (action === "forward") goForward();
   else if (action === "reload") refreshActive();
   else if (action === "focus-location") { urlInput.focus(); urlInput.select(); }
+  else if (action === "show-context-menu") {
+    showContextMenu({ x: window.innerWidth / 2, y: window.innerHeight / 2, tab: activeTab() });
+  }
   else if (action === "next-tab") cycleTab(1);
   else if (action === "previous-tab") cycleTab(-1);
   else if (/^tab-[1-9]$/.test(action)) switchNumberedTab(Number(action.slice(4)));

@@ -98,6 +98,7 @@ A 429 or 403 from any engine is retried on a **fresh circuit** rather than repor
 | `Cmd/Ctrl+9` | switch to the last tab |
 | `Ctrl+Tab / Ctrl+Shift+Tab` | cycle tabs forward / backward |
 | `Cmd+[ / Cmd+]` or `Alt+← / Alt+→` | back / forward |
+| `Shift+F10` | open the Ghoster context menu |
 
 Cmd/Ctrl-click and middle-click open links in a background Ghoster tab;
 `target=_blank` and `window.open()` open a foreground Ghoster tab instead of an

@@ -22,7 +22,7 @@ func TestGhosterMenuContainsNativeBrowserShortcuts(t *testing.T) {
 
 	for _, label := range []string{
 		"New Tab", "Reopen Closed Tab", "Close Tab",
-		"Back", "Forward", "Reload", "Focus Address Bar",
+		"Back", "Forward", "Reload", "Focus Address Bar", "Context Menu",
 		"Next Tab", "Previous Tab", "Tab 1", "Last Tab",
 	} {
 		item := items[label]

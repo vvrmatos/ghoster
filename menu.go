@@ -27,6 +27,7 @@ func ghosterMenu(app *App) *menu.Menu {
 	navigation.AddText("Forward", keys.CmdOrCtrl("]"), emit("forward"))
 	navigation.AddText("Reload", keys.CmdOrCtrl("r"), emit("reload"))
 	navigation.AddText("Focus Address Bar", keys.CmdOrCtrl("l"), emit("focus-location"))
+	navigation.AddText("Context Menu", keys.Shift("f10"), emit("show-context-menu"))
 
 	tabs := menu.NewMenu()
 	tabs.AddText("Next Tab", keys.Control("tab"), emit("next-tab"))
